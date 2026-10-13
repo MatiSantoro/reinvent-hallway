@@ -37,4 +37,4 @@ def test_plan_calls_bedrock_with_forced_tool(monkeypatch):
     monkeypatch.setattr(planner, "_client", lambda: Fake())
     out = planner.plan({"goals": "agents", "candidates": [{"id": "s1", "title": "Agents 101"}], "maxPicks": 5})
     assert out["picks"] == [{"sessionId": "s1", "reason": "fits agents"}]
-    assert calls["toolConfig"]["toolChoice"] == {"tool": {"name": "submit_plan"}}
+    assert calls["toolConfig"]["toolChoice"] == {"any": {}}

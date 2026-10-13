@@ -2,7 +2,7 @@
   "app": "python3 app.py",
   "context": {
     "region": "us-east-1",
-    "bedrockModelId": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "bedrockModelId": "us.anthropic.claude-sonnet-4-6",
     "expiresAt": "2027-01-31"
   }
 }

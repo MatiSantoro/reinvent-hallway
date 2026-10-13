@@ -13,7 +13,7 @@ from typing import Any
 
 import boto3
 
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 MAX_CANDIDATES = 150
 
 _bedrock = None
@@ -126,7 +126,7 @@ def plan(body: dict[str, Any]) -> dict:
         modelId=MODEL_ID,
         system=[{"text": SYSTEM}],
         messages=[{"role": "user", "content": [{"text": user}]}],
-        toolConfig={"tools": [TOOL], "toolChoice": {"tool": {"name": "submit_plan"}}},
+        toolConfig={"tools": [TOOL], "toolChoice": {"any": {}}},
         inferenceConfig={"maxTokens": 4000, "temperature": 0.2},
     )
     return parse_tool_output(response, {c["id"] for c in candidates}, max_picks)
