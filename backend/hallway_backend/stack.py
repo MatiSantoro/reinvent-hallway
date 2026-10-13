@@ -1,9 +1,11 @@
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_apigatewayv2 as apigw
 from aws_cdk import aws_apigatewayv2_integrations as integrations
+from aws_cdk import aws_budgets as budgets
 from aws_cdk import aws_dynamodb as ddb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -20,6 +22,11 @@ class HallwayStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         model_id = self.node.try_get_context("bedrockModelId")
+        # Shared app key: the app sends it as x-api-key. Not secret (it ships in the app), it only keeps casual callers out.
+        api_key = self.node.try_get_context("apiKey") or os.environ.get("HALLWAY_API_KEY")
+        if not api_key:
+            raise ValueError("Set the app key: cdk deploy -c apiKey=<random string> (or env HALLWAY_API_KEY)")
+        plan_daily_limit = int(self.node.try_get_context("planDailyLimit") or 100)
         expires = datetime.strptime(self.node.try_get_context("expiresAt") or "2027-01-31", "%Y-%m-%d")
         expires_at = int(expires.replace(tzinfo=timezone.utc).timestamp())
 
@@ -47,6 +54,8 @@ class HallwayStack(Stack):
                 "TABLE_NAME": table.table_name,
                 "BEDROCK_MODEL_ID": model_id,
                 "EXPIRES_AT": str(expires_at),
+                "API_KEY": api_key,
+                "PLAN_DAILY_LIMIT": str(plan_daily_limit),
             },
             log_group=logs.LogGroup(
                 self, "ApiLogs", retention=logs.RetentionDays.ONE_MONTH, removal_policy=RemovalPolicy.DESTROY
@@ -75,6 +84,33 @@ class HallwayStack(Stack):
         stage.default_route_settings = apigw.CfnStage.RouteSettingsProperty(
             throttling_rate_limit=10, throttling_burst_limit=20
         )
+
+        # Optional spending alert. Set -c alertEmail=you@example.com to turn it on.
+        alert_email = self.node.try_get_context("alertEmail")
+        if alert_email:
+            budgets.CfnBudget(
+                self,
+                "MonthlyBudget",
+                budget=budgets.CfnBudget.BudgetDataProperty(
+                    budget_type="COST",
+                    time_unit="MONTHLY",
+                    budget_limit=budgets.CfnBudget.SpendProperty(
+                        amount=float(self.node.try_get_context("monthlyBudgetUsd") or 25), unit="USD"
+                    ),
+                ),
+                notifications_with_subscribers=[
+                    budgets.CfnBudget.NotificationWithSubscribersProperty(
+                        notification=budgets.CfnBudget.NotificationProperty(
+                            notification_type="ACTUAL",
+                            comparison_operator="GREATER_THAN",
+                            threshold=threshold,
+                            threshold_type="PERCENTAGE",
+                        ),
+                        subscribers=[budgets.CfnBudget.SubscriberProperty(subscription_type="EMAIL", address=alert_email)],
+                    )
+                    for threshold in (50, 80, 100)
+                ],
+            )
 
         CfnOutput(self, "ApiUrl", value=api.api_endpoint, description="Set as EXPO_PUBLIC_BACKEND_URL in app/.env")
         CfnOutput(self, "TableName", value=table.table_name)

@@ -8,6 +8,7 @@ import re
 from typing import Any, Callable
 
 import groups
+import guard
 import planner
 
 log = logging.getLogger()
@@ -18,7 +19,7 @@ I = r"(?P<i>[A-Za-z0-9xy]{6,20})"
 
 # (method, path regex, needs member auth, handler(match, me, body, query))
 ROUTES: list[tuple[str, re.Pattern, bool, Callable[..., Any]]] = [
-    ("POST", re.compile(r"^/plan$"), False, lambda m, me, b, q: planner.plan(b)),
+    ("POST", re.compile(r"^/plan$"), False, lambda m, me, b, q: planner.plan(b, before_call=guard.take_plan_slot)),
     ("POST", re.compile(r"^/groups$"), False, lambda m, me, b, q: groups.create_group(b)),
     ("POST", re.compile(r"^/groups/join$"), False, lambda m, me, b, q: groups.join_group(b)),
     ("GET", re.compile(rf"^/groups/{G}$"), True, lambda m, me, b, q: groups.get_group(m["g"], me)),
@@ -47,11 +48,14 @@ def lambda_handler(event: dict, context: Any) -> dict:
     query = event.get("queryStringParameters") or {}
 
     try:
+        guard.check_api_key(headers)
         body = json.loads(event.get("body") or "{}") if method in ("POST", "PUT") else {}
         if not isinstance(body, dict):
             raise groups.HttpError(400, "Body must be a JSON object")
     except json.JSONDecodeError:
         return _resp(400, {"message": "Invalid JSON"})
+    except groups.HttpError as e:
+        return _resp(e.status, {"message": e.message})
 
     for m, pattern, needs_auth, fn in ROUTES:
         match = pattern.match(path)

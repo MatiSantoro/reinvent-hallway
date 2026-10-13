@@ -80,8 +80,10 @@ cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cdk bootstrap        # first time per account/region
-cdk deploy
+cdk deploy -c apiKey=<random string> -c alertEmail=you@example.com   # alertEmail is optional
 ```
+
+Pick any random string for `apiKey` (or set `HALLWAY_API_KEY`); the app sends it as `x-api-key`. `/plan` is capped at 100 calls a day (`planDailyLimit` in `cdk.json`). See [DECISIONS.md](DECISIONS.md) for what these guards do and don't do.
 
 Copy the `ApiUrl` output. The model is set in `cdk.json` (`bedrockModelId`), change it to any Claude model your account can use.
 
@@ -93,6 +95,7 @@ Without the backend, the app still works: planning falls back to ranking on the 
 cd app
 npm install
 echo "EXPO_PUBLIC_BACKEND_URL=https://xxxx.execute-api.us-east-1.amazonaws.com" > .env
+echo "EXPO_PUBLIC_API_KEY=<the same apiKey>" >> .env
 npx expo run:ios
 ```
 
@@ -112,6 +115,7 @@ cd app && npx tsc --noEmit
 - Walking times and cert mappings are our own estimates (`app/src/data/venues.ts`, `app/src/data/certs.ts`). The API has venue names but no coordinates, and no certification field.
 - The API gives seat bands (`available`, `limited`, `veryLimited`, `unavailable`, `walkUp`), not counts. Hallway reserves the scarcest sessions first.
 - There is no waitlist in the API, and Hallway does not poll for freed seats.
+- The API cannot tell who is calling it, by design: your Builder ID token never reaches the backend. See [DECISIONS.md](DECISIONS.md).
 - Group data expires automatically after re:Invent (DynamoDB TTL, `expiresAt` in `cdk.json`).
 
 ## License

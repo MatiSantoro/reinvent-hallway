@@ -112,10 +112,12 @@ def parse_tool_output(response: dict, allowed_ids: set[str], max_picks: int) -> 
     return {"summary": str(data.get("summary", ""))[:500], "picks": picks}
 
 
-def plan(body: dict[str, Any]) -> dict:
+def plan(body: dict[str, Any], before_call=None) -> dict:
     goals, certs, candidates, max_picks = _clean(body)
     if not candidates:
         raise BadRequest("no valid candidates")
+    if before_call:
+        before_call()  # e.g. the daily cap: only counts requests that are about to cost money
     user = (
         f"Attendee goals: {goals or '(none given)'}\n"
         f"Certifications being studied: {', '.join(certs) or 'none'}\n"

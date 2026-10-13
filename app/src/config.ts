@@ -23,6 +23,9 @@ export const DEFAULT_EVENT_ID = 'reinvent2026';
 // You can also set EXPO_PUBLIC_BACKEND_URL in app/.env
 export const BACKEND_URL = (process.env.EXPO_PUBLIC_BACKEND_URL || '').replace(/\/$/, '');
 
+// Shared app key, sent as x-api-key. It ships inside the app, so it only keeps casual callers out (see DECISIONS.md).
+export const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
+
 // Deep link scheme for group invites: hallway://join/<code>
 export const APP_SCHEME = 'hallway';
 

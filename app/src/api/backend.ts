@@ -3,7 +3,7 @@
 // session ids, times, busy slots and a display name.
 import * as SecureStore from 'expo-secure-store';
 import { File, Paths } from 'expo-file-system';
-import { BACKEND_URL } from '../config';
+import { API_KEY, BACKEND_URL } from '../config';
 
 export type GroupMode = 'squad' | 'team';
 
@@ -96,7 +96,7 @@ export class BackendNotConfigured extends Error {
 
 async function req<T>(path: string, init: { method?: string; body?: unknown; groupId?: string } = {}): Promise<T> {
   if (!BACKEND_URL) throw new BackendNotConfigured();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Api-Key': API_KEY };
   if (init.groupId) {
     const m = (await myGroups()).find((g) => g.groupId === init.groupId);
     const secret = await SecureStore.getItemAsync(secretKey(init.groupId));

@@ -20,11 +20,12 @@ def api(monkeypatch):
         import handler
 
         monkeypatch.setattr(groups, "_table", None)
+        monkeypatch.setenv("API_KEY", "test-key")
 
-        def call(method, path, body=None, member=None, query=None):
-            headers = {}
+        def call(method, path, body=None, member=None, query=None, key="test-key"):
+            headers = {"X-Api-Key": key} if key is not None else {}
             if member:
-                headers = {"X-Member-Id": member["memberId"], "X-Member-Secret": member["secret"]}
+                headers.update({"X-Member-Id": member["memberId"], "X-Member-Secret": member["secret"]})
             ev = {
                 "requestContext": {"http": {"method": method}},
                 "rawPath": path,
@@ -95,3 +96,43 @@ def test_validation(api):
     assert s == 404
     s, _ = api("GET", "/nope")
     assert s == 404
+
+
+def test_app_key_is_required(api):
+    assert api("POST", "/groups", {"name": "x", "displayName": "y"}, key=None)[0] == 401
+    assert api("POST", "/groups", {"name": "x", "displayName": "y"}, key="wrong")[0] == 401
+    assert api("POST", "/groups", {"name": "x", "displayName": "y"})[0] == 200
+
+
+PLAN_BODY = {"goals": "agents", "candidates": [{"id": "s1", "title": "Agents 101"}], "maxPicks": 1}
+
+
+@pytest.fixture()
+def fake_bedrock(monkeypatch):
+    import planner
+
+    class Fake:
+        calls = 0
+
+        def converse(self, **kw):
+            Fake.calls += 1
+            return {"output": {"message": {"content": [{"toolUse": {"name": "submit_plan", "input": {
+                "summary": "ok", "picks": [{"sessionId": "s1", "reason": "fits"}]}}}]}}}
+
+    monkeypatch.setattr(planner, "_client", lambda: Fake())
+    return Fake
+
+
+def test_plan_daily_limit(api, fake_bedrock, monkeypatch):
+    monkeypatch.setenv("PLAN_DAILY_LIMIT", "2")
+    assert api("POST", "/plan", PLAN_BODY)[0] == 200
+    assert api("POST", "/plan", PLAN_BODY)[0] == 200
+    status, body = api("POST", "/plan", PLAN_BODY)
+    assert status == 429 and "limit" in body["message"].lower()
+    assert fake_bedrock.calls == 2  # the refused call never reached Bedrock
+
+
+def test_bad_plan_request_does_not_use_a_slot(api, fake_bedrock, monkeypatch):
+    monkeypatch.setenv("PLAN_DAILY_LIMIT", "1")
+    assert api("POST", "/plan", {"goals": "x", "candidates": []})[0] == 400
+    assert api("POST", "/plan", PLAN_BODY)[0] == 200
