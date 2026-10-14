@@ -2,7 +2,7 @@
 
 Plan your re:Invent 2026 week, alone or with your crew.
 
-Hallway is an iPhone app (Expo / React Native) built on the new [AWS Events API](https://docs.aws.amazon.com/events/latest/devguide/what-is-events-api.html). You tell it what you want from re:Invent, an agent on Amazon Bedrock picks sessions, and Hallway builds a week that actually works: no clashes, a daily limit, and enough time to walk between venues. Then it favorites, reserves and blocks time in your real re:Invent account, and checks that every change landed.
+Hallway is a phone app for **iPhone and Android** (Expo / React Native) built on the new [AWS Events API](https://docs.aws.amazon.com/events/latest/devguide/what-is-events-api.html). You tell it what you want from re:Invent, an agent on Amazon Bedrock picks sessions, and Hallway builds a week that actually works: no clashes, a daily limit, and enough time to walk between venues. Then it favorites, reserves and blocks time in your real re:Invent account, and checks that every change landed.
 
 With **groups**, you and your friends or team share a calendar: propose sessions, tap "I'm in" to reserve your own seat, find a time when everyone is free, or split sessions so the team covers more.
 
@@ -67,8 +67,9 @@ backend/             AWS CDK app (Python)
 ## Requirements
 
 - You must be registered for re:Invent 2026, or the catalog returns `403`
-- A Mac with Xcode (for the iOS simulator or an iPhone)
-- Node.js 20+
+- Node.js 20+ and git
+- To run on **iPhone or the iOS Simulator**: a Mac with Xcode (iOS apps can't be built on Windows or Linux)
+- To run on **Android**: an Android phone or emulator. Building on your own computer (Windows, macOS or Linux) needs [Android Studio](https://developer.android.com/studio) (which brings the Android SDK) and JDK 17. Or skip all that and use the [cloud build](#android-phone-without-android-studio-cloud-build).
 - For the backend: Python 3.12+, AWS CDK v2 (`npm i -g aws-cdk`), an AWS account with access to an Anthropic Claude model in Amazon Bedrock (us-east-1)
 
 ## Run it
@@ -89,21 +90,73 @@ Copy the `ApiUrl` output. The model is set in `cdk.json` (`bedrockModelId`), cha
 
 Without the backend, the app still works: planning falls back to ranking on the phone, and groups are disabled.
 
-### 2. Run the app
+### 2. Set up the app (once)
 
 ```bash
 cd app
 npm install
 echo "EXPO_PUBLIC_BACKEND_URL=https://xxxx.execute-api.us-east-1.amazonaws.com" > .env
 echo "EXPO_PUBLIC_API_KEY=<the same apiKey>" >> .env
-npx expo run:ios
 ```
 
-Pick a simulator (or your iPhone). Expo Go does **not** work, because the sign-in listener is a native module (`react-native-tcp-socket`).
+The `.env` file is not in git, so every new clone needs it. Skip the two `echo` lines to run without the backend.
 
-For a real iPhone: set your Apple ID as signing team in Xcode, change the bundle id in `app.json`, turn on Developer Mode, and trust the developer profile in Settings > General > VPN & Device Management.
+### 3. Build the app once, then run it
 
-### 3. Tests
+> **Why not just `npx expo start`?** Sign-in uses a small native listener (`react-native-tcp-socket`) that **Expo Go does not include**. So the app has to be built once as a *development build* for your phone or simulator. After that, one command serves both platforms (see [Every day](#every-day-one-command-for-both-platforms)).
+
+Pick the row that matches you:
+
+| I want to run on... | Computer | Command |
+|---|---|---|
+| iOS Simulator | Mac | `npx expo run:ios` |
+| My iPhone | Mac | `npx expo run:ios --device` |
+| Android emulator | Windows, Mac or Linux | `npx expo run:android` |
+| My Android phone, plugged in | Windows, Mac or Linux | `npx expo run:android --device` |
+| My Android phone, no Android Studio | Any | [cloud build](#android-phone-without-android-studio-cloud-build) |
+
+**iPhone (real device).** In Xcode, set your Apple ID as the signing team, and change `ios.bundleIdentifier` in `app.json` to something unique. On the phone, turn on Developer Mode and trust the developer profile in Settings > General > VPN & Device Management. Without a paid Apple developer account, the app expires after 7 days and only installs on your own devices.
+
+**Android phone, plugged in.** On the phone: Settings > About phone > tap *Build number* 7 times, then Settings > Developer options > turn on *USB debugging*. Plug it in, accept the prompt on the phone, and check that `adb devices` lists it. Then run the command from the table.
+
+**Android emulator.** In Android Studio, open Device Manager and create a Pixel phone, start it, then run the command from the table.
+
+#### Android phone without Android Studio (cloud build)
+
+This builds an installable `.apk` on Expo's servers (free Expo account), so it needs no Android SDK, and the app runs without your computer.
+
+```bash
+npx eas-cli login
+npx eas-cli init                 # once: links this project to your Expo account
+npx eas-cli env:set --environment preview --name EXPO_PUBLIC_BACKEND_URL --value https://xxxx.execute-api.us-east-1.amazonaws.com --visibility plaintext
+npx eas-cli env:set --environment preview --name EXPO_PUBLIC_API_KEY --value <the same apiKey> --visibility plaintext
+npx eas-cli build --platform android --profile preview
+```
+
+The two `env:set` lines are needed because the cloud build can't see your local `.env` (older `eas-cli` versions call this command `env:create`). When the build finishes it prints a link and a QR code. Open it on the phone, download the `.apk`, and allow "install unknown apps" for your browser when Android asks.
+
+### Every day: one command for both platforms
+
+Once the app is installed on your simulator or phone, start the dev server:
+
+```bash
+npx expo start --dev-client
+```
+
+Open the Hallway app on the phone or simulator and it connects (or press `i` for the iOS Simulator and `a` for an Android device or emulator in that terminal). iPhone and Android can connect to the same server at the same time. Edits then reload on the device without rebuilding. Rebuild only when a native dependency changes.
+
+The phone must reach your computer: same Wi-Fi, and on iPhone allow *Local Network* for Hallway (Settings > Privacy & Security > Local Network). If the network blocks it, use `npx expo start --dev-client --tunnel`. A USB-plugged Android phone doesn't need Wi-Fi: `npx expo run:android --device` sets that up for you.
+
+### Demo build (no computer needed)
+
+A release build carries its own JavaScript, so it doesn't need the dev server or any network setup. Good for a demo.
+
+```bash
+npx expo run:ios --device --configuration Release          # Mac
+npx expo run:android --device --variant release            # Android, plugged in
+```
+
+### 4. Tests
 
 ```bash
 cd backend && pip install -r requirements-dev.txt && python -m pytest
