@@ -126,7 +126,7 @@ Pick the row that matches you:
 | My Android phone, plugged in | Windows, Mac or Linux | `npx expo run:android --device` |
 | My Android phone, no Android Studio | Any | [cloud build](#android-phone-without-android-studio-cloud-build) |
 
-**iPhone (real device).** In Xcode, set your Apple ID as the signing team, and change `ios.bundleIdentifier` in `app.json` to something unique. On the phone, turn on Developer Mode and trust the developer profile in Settings > General > VPN & Device Management. Without a paid Apple developer account, the app expires after 7 days and only installs on your own devices.
+**iPhone (real device).** See [Run it on an iPhone](#run-it-on-an-iphone-no-paid-apple-account) below.
 
 **Android phone, plugged in.** On the phone: Settings > About phone > tap *Build number* 7 times, then Settings > Developer options > turn on *USB debugging*. Plug it in, accept the prompt on the phone, and check that `adb devices` lists it. Then run the command from the table.
 
@@ -139,12 +139,38 @@ This builds an installable `.apk` on Expo's servers (free Expo account), so it n
 ```bash
 npx eas-cli login
 npx eas-cli init                 # once: links this project to your Expo account
-npx eas-cli env:set --environment preview --name EXPO_PUBLIC_BACKEND_URL --value <backend address> --visibility plaintext
-npx eas-cli env:set --environment preview --name EXPO_PUBLIC_API_KEY --value <the matching app key> --visibility plaintext
+npx eas-cli env:set --environment preview --name EXPO_PUBLIC_BACKEND_URL --value <backend address> --visibility sensitive
+npx eas-cli env:set --environment preview --name EXPO_PUBLIC_API_KEY --value <the matching app key> --visibility sensitive
 npx eas-cli build --platform android --profile preview
 ```
 
-The two `env:set` lines are needed because the cloud build can't see your local `.env` (older `eas-cli` versions call this command `env:create`). When the build finishes it prints a link and a QR code. Open it on the phone, download the `.apk`, and allow "install unknown apps" for your browser when Android asks.
+The two `env:set` lines are needed because the cloud build can't see your local `.env` (older `eas-cli` versions call this command `env:create`). `sensitive` hides the values in Expo's build logs. It does **not** keep them secret: both values end up inside the app, and anything inside an app can be read by whoever installs it (Expo's own docs say so, and `secret` isn't allowed for app values). Treat the app key as a speed bump, not a password. When the build finishes it prints a link and a QR code. Open it on the phone, download the `.apk`, and allow "install unknown apps" for your browser when Android asks.
+
+### Run it on an iPhone (no paid Apple account)
+
+You do **not** need the $99 Apple Developer Program for this. A free Apple ID is enough. You do need a **Mac with Xcode** (free from the App Store), because iPhone apps can only be built on a Mac, and a USB cable.
+
+1. Open Xcode once, go to *Xcode > Settings > Accounts*, and sign in with your Apple ID. You get a free "Personal Team".
+2. On the iPhone: *Settings > Privacy & Security > Developer Mode* > turn on, and let it restart.
+3. In `app/app.json`, change `ios.bundleIdentifier` to something unique to you, such as `com.yourname.hallway`. (Apple refuses an id that someone else already used.)
+4. Do [step 2](#2-set-up-the-app-once) above (`npm install` and the `.env` file), plug the phone in, unlock it, and tap *Trust* if it asks.
+5. Run:
+
+   ```bash
+   cd app
+   npx expo run:ios --device
+   ```
+
+   Pick your iPhone from the list. The first build takes a few minutes. If Xcode complains about signing, open `app/ios/Hallway.xcworkspace`, select the Hallway target, and under *Signing & Capabilities* pick your Personal Team.
+6. On the phone, the first launch says "Untrusted Developer". Go to *Settings > General > VPN & Device Management*, tap your Apple ID, and tap *Trust*. Then open Hallway.
+
+**Limits of a free account:** the app stops opening after **7 days** (run the command again to renew it), it can only be installed on your own devices, and Apple limits how many apps like this can be on a phone at once.
+
+By default this installs a development build that loads its code from your computer, so keep `npx expo start --dev-client` running on the same Wi-Fi and allow *Local Network* for Hallway when the phone asks. To get an app that works with no computer at all, add `--configuration Release`:
+
+```bash
+npx expo run:ios --device --configuration Release
+```
 
 ### Every day: one command for both platforms
 

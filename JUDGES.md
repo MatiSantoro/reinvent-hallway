@@ -8,10 +8,10 @@ Hallway is a phone app (iPhone and Android) that plans your re:Invent 2026 week.
 
 ## What you need
 
-- **A phone**, Android or iPhone.
+- **An Android phone** (the easy way: you just install a file), **or an iPhone plus a Mac** (see the iPhone row below for why).
 - **An AWS Builder ID that is registered for re:Invent 2026.** The app signs you in and reads your real schedule from the AWS Events API. For an account that isn't registered, that API refuses the request (`403`) and the app stops on the sign-in screen with a "not registered" message. If that's you, use the demo video below.
 
-That's all. No AWS account, no CDK, no Xcode, no Android Studio.
+That's all for Android: no AWS account, no CDK, no Android Studio, and **no Expo Go or any other app**. You install Hallway itself.
 
 ## Ways to try it
 
@@ -19,10 +19,10 @@ Pick one.
 
 | | How |
 |---|---|
-| **Android** | Install the app from this link: **`<APK LINK: add before submitting>`**. Open it on the phone, download the file, and allow "install unknown apps" for your browser when Android asks. |
-| **iPhone** | **`<TESTFLIGHT LINK, if available: add before submitting, or delete this row>`**. |
+| **Android** | Download `hallway.apk` from the **[latest release](https://github.com/MatiSantoro/reinvent-hallway/releases/latest)**. Open it on the phone and allow "install unknown apps" for your browser when Android asks. |
+| **iPhone** | There is no installable iPhone file: that needs a paid Apple Developer account, which we don't have. If you have a **Mac with Xcode** and an iPhone, you can build it onto your phone with a free Apple ID in a few minutes: follow [Run it on an iPhone](README.md#run-it-on-an-iphone-no-paid-apple-account) in the README (`npx expo run:ios --device`). The app then works for 7 days. |
 | **Watch, no install** | Demo video: **`<VIDEO LINK: add before submitting>`** |
-| **Build it yourself** | Only if you want to. See [Run it yourself](README.md#run-it-yourself) in the README. You will need the backend address and app key from the submission notes (they are not in this repository). |
+| **Build it yourself** | Only if you want to. See [Run it yourself](README.md#run-it-yourself) in the README. You will need the shared backend address and app key: **`<BACKEND ADDRESS AND APP KEY: to be added>`**. |
 
 ## Five-minute tour
 
