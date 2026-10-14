@@ -23,6 +23,7 @@ type Note = { text: string; ok: boolean };
 export function PlanScreen() {
   const app = useApp();
   const [g, setG] = useState<Goals>(DEFAULT_GOALS);
+  const [maxText, setMaxText] = useState(String(DEFAULT_GOALS.maxPerDay));
   const [plan, setPlan] = useState<PlanOutput | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [report, setReport] = useState<Report | null>(null);
@@ -165,8 +166,15 @@ export function PlanScreen() {
             <Field
               label="Max / day"
               keyboardType="number-pad"
-              value={String(g.maxPerDay)}
-              onChangeText={(v) => setG({ ...g, maxPerDay: Math.max(1, Math.min(10, Number(v) || 1)) })}
+              value={maxText}
+              selectTextOnFocus
+              onChangeText={(v) => {
+                // Let the box be empty while typing. The 1-10 limit is applied when you leave it.
+                const digits = v.replace(/\D/g, '').slice(0, 2);
+                setMaxText(digits);
+                if (digits) setG({ ...g, maxPerDay: Math.max(1, Math.min(10, Number(digits))) });
+              }}
+              onBlur={() => setMaxText(String(g.maxPerDay))}
             />
           </View>
         </Row>
