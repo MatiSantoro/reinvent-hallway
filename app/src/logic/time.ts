@@ -10,10 +10,17 @@ export interface Interval {
   end: number;
 }
 
-/** Offset of `tz` from UTC at instant `utcMs`, in minutes (e.g. -480 for PST). */
-export function tzOffsetMinutes(utcMs: number, tz: string): number {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
+// Building an Intl.DateTimeFormat is slow on Hermes, and the catalog has thousands of sessions that
+// each need several date lookups per filter. So the formatter is built once per timezone, and the
+// offset is remembered per 15-minute bucket (offsets only change on DST edges).
+const formatters = new Map<string, Intl.DateTimeFormat>();
+const offsets = new Map<string, number>();
+const BUCKET_MS = 15 * 60000;
+
+function formatterFor(tz: string): Intl.DateTimeFormat {
+  let f = formatters.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hourCycle: 'h23',
       year: 'numeric',
@@ -22,10 +29,25 @@ export function tzOffsetMinutes(utcMs: number, tz: string): number {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-    }).formatToParts(new Date(utcMs));
+    });
+    formatters.set(tz, f);
+  }
+  return f;
+}
+
+/** Offset of `tz` from UTC at instant `utcMs`, in minutes (e.g. -480 for PST). */
+export function tzOffsetMinutes(utcMs: number, tz: string): number {
+  const key = `${tz}|${Math.floor(utcMs / BUCKET_MS)}`;
+  const hit = offsets.get(key);
+  if (hit !== undefined) return hit;
+  try {
+    const parts = formatterFor(tz).formatToParts(new Date(utcMs));
     const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
     const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
-    return Math.round((asUtc - utcMs) / 60000);
+    const minutes = Math.round((asUtc - utcMs) / 60000);
+    if (offsets.size > 20000) offsets.clear();
+    offsets.set(key, minutes);
+    return minutes;
   } catch {
     return FALLBACK_OFFSET_MIN;
   }
@@ -42,12 +64,21 @@ export function zonedToUtc(date: string, time: string, tz: string): number {
   return utc;
 }
 
+// A session never changes after it is loaded, so its interval is worked out once.
+const intervals = new WeakMap<Session, { tz: string; iv: Interval | null }>();
+
 export function sessionInterval(s: Session, eventTz: string): Interval | null {
+  const cached = intervals.get(s);
+  if (cached && cached.tz === eventTz) return cached.iv;
   const t = s.sessionTime;
-  if (!t?.date || !t.time) return null;
-  const start = zonedToUtc(t.date, t.time, t.timezone || eventTz);
-  const len = Number(t.length || '60');
-  return { start, end: start + (Number.isFinite(len) && len > 0 ? len : 60) * 60000 };
+  let iv: Interval | null = null;
+  if (t?.date && t.time) {
+    const start = zonedToUtc(t.date, t.time, t.timezone || eventTz);
+    const len = Number(t.length || '60');
+    iv = { start, end: start + (Number.isFinite(len) && len > 0 ? len : 60) * 60000 };
+  }
+  intervals.set(s, { tz: eventTz, iv });
+  return iv;
 }
 
 export const overlaps = (a: Interval, b: Interval) => a.start < b.end && b.start < a.end;

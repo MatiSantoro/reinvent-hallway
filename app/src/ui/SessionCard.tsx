@@ -1,33 +1,41 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { Session } from '../api/types';
 import { venueLabel } from '../data/venues';
 import { levelNumber } from '../logic/filter';
 import { dayKey, fmtDay, fmtRange, sessionInterval } from '../logic/time';
+import { SessionActions } from './SessionActions';
 import { Badge, C, Row } from './kit';
 
+// What the band says about seats left. This is NOT whether you hold a seat: that is the status line.
 const SEATS: Record<string, { text: string; color: string }> = {
-  available: { text: 'Seats', color: C.good },
-  limited: { text: 'Limited', color: C.warn },
-  veryLimited: { text: 'Very limited', color: C.bad },
+  available: { text: 'Seats open', color: C.good },
+  limited: { text: 'Limited seats', color: C.warn },
+  veryLimited: { text: 'Few seats left', color: C.bad },
   unavailable: { text: 'Full', color: C.bad },
   walkUp: { text: 'Walk-up', color: C.blue },
 };
 
-export function SessionCard({
+function SessionCardBase({
   s,
   tz,
   reserved,
   favorite,
   reason,
-  right,
+  note,
+  actions,
+  hideFavorite,
 }: {
   s: Session;
   tz: string;
   reserved?: boolean;
   favorite?: boolean;
   reason?: string;
-  right?: React.ReactNode;
+  /** Result of the last reservation attempt, e.g. "Full" or "Clashes with your schedule". */
+  note?: { text: string; ok: boolean };
+  /** Show the Reserve / Favorite buttons. */
+  actions?: boolean;
+  hideFavorite?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const iv = sessionInterval(s, tz);
@@ -41,17 +49,24 @@ export function SessionCard({
         borderRadius: 14,
         padding: 14,
         marginBottom: 10,
-        borderWidth: 1,
-        borderColor: reserved ? C.accent : C.line,
+        borderWidth: reserved ? 2 : 1,
+        borderColor: reserved ? C.good : C.line,
       }}
     >
+      {reserved ? (
+        <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+          <View style={{ backgroundColor: C.good, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+            <Text style={{ color: '#06260F', fontSize: 12, fontWeight: '800' }}>✓ RESERVED · you have a seat</Text>
+          </View>
+        </View>
+      ) : favorite ? (
+        <Text style={{ color: C.warn, fontSize: 12, fontWeight: '800', marginBottom: 8 }}>★ FAVORITE · not reserved</Text>
+      ) : null}
       <Row style={{ marginBottom: 6 }}>
         {s.abbreviation ? <Text style={{ color: C.dim, fontSize: 12, fontWeight: '700' }}>{s.abbreviation}</Text> : null}
         {lvl ? <Badge text={String(lvl)} /> : null}
         {s.type ? <Badge text={s.type} /> : null}
-        {seats ? <Badge text={seats.text} color={seats.color} /> : null}
-        {reserved ? <Badge text="Reserved" color={C.accent} /> : null}
-        {favorite && !reserved ? <Badge text="★ Favorite" color={C.warn} /> : null}
+        {seats && !reserved ? <Badge text={seats.text} color={seats.color} /> : null}
       </Row>
       <Text style={{ color: C.text, fontSize: 16, fontWeight: '700', lineHeight: 21 }}>{s.title}</Text>
       <Text style={{ color: C.dim, fontSize: 13, marginTop: 6 }}>
@@ -59,6 +74,12 @@ export function SessionCard({
         {s.room ? ` · ${s.room}` : ''}
       </Text>
       {reason ? <Text style={{ color: C.accent, fontSize: 13, marginTop: 8 }}>✦ {reason}</Text> : null}
+      {note ? (
+        <Text style={{ color: note.ok ? C.good : C.bad, fontSize: 13, fontWeight: '700', marginTop: 8 }}>
+          {note.ok ? '✓ ' : '✗ '}
+          {note.text}
+        </Text>
+      ) : null}
       {open ? (
         <View style={{ marginTop: 10 }}>
           {s.speakers?.length ? (
@@ -72,7 +93,14 @@ export function SessionCard({
           ) : null}
         </View>
       ) : null}
-      {right ? <View style={{ marginTop: 10 }}>{right}</View> : null}
+      {actions ? (
+        <View style={{ marginTop: 10 }}>
+          <SessionActions s={s} reserved={!!reserved} favorite={!!favorite} hideFavorite={hideFavorite} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
+
+// Props are plain values, so a card only re-renders when something about it changed.
+export const SessionCard = memo(SessionCardBase);

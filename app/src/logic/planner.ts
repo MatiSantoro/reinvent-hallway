@@ -5,6 +5,7 @@
 // The agent only ever returns session ids. Our code decides what fits.
 import { plan as agentPlan, PlanCandidate } from '../api/backend';
 import type { Schedule, Session } from '../api/types';
+import { certById } from '../data/certs';
 import { candidates, Goals, score } from './filter';
 import { personalInterval } from './reconcile';
 import { analyze, buildPlan, PlanResult, sessionSlot, Slot, TravelBlock } from './scheduler';
@@ -49,6 +50,21 @@ export function fixedSlots(schedule: Schedule, byId: Map<string, Session>, tz: s
   return out;
 }
 
+/**
+ * How many picks to ask the agent for. The wait is almost all output tokens, so asking for 40 picks
+ * when the week only has room for ~20 doubles the time for nothing. A day's cap, a few spare for
+ * clashes, and never more than 30.
+ */
+function askFor(pool: Session[], goals: Goals, tz: string): number {
+  const days = new Set<string>();
+  for (const s of pool) {
+    const iv = sessionInterval(s, tz);
+    if (iv) days.add(dayKey(iv.start, tz));
+  }
+  const wanted = Math.ceil(Math.max(1, days.size) * goals.maxPerDay * 1.4);
+  return Math.max(8, Math.min(30, wanted));
+}
+
 export async function makePlan(
   all: Session[],
   byId: Map<string, Session>,
@@ -67,9 +83,10 @@ export async function makePlan(
     try {
       const r = await agentPlan({
         goals: goals.text,
-        certs: goals.certs,
+        // Send exam codes ("MLA-C02"), not our internal ids.
+        certs: goals.certs.map((id) => certById(id)?.code || id),
         candidates: pool.slice(0, 120).map((s) => toCandidate(s, tz)),
-        maxPicks: Math.min(40, goals.maxPerDay * 5 * 2),
+        maxPicks: askFor(pool, goals, tz),
       });
       const seen = new Set<string>();
       for (const p of r.picks) {

@@ -4,6 +4,7 @@
 //   -> on an unknown outcome, re-read GetSchedule instead of repeating the request
 //   -> confirm the final state with GetSchedule
 import {
+  ApiError,
   associateFavorites,
   createPersonalTime,
   deletePersonalTime,
@@ -14,7 +15,7 @@ import {
 } from '../api/events';
 import type { BulkFailure, PersonalTimeInput, Schedule, Session } from '../api/types';
 import { PT_TAG } from '../config';
-import { fromApiUtc, toApiUtc } from './time';
+import { dayKey, fmtDay, fmtRange, fromApiUtc, toApiUtc } from './time';
 import type { TravelBlock } from './scheduler';
 
 export interface WriteReport {
@@ -113,14 +114,38 @@ export const isOurs = (description: string) => description.includes(PT_TAG);
 const same = (a: { startDateTime: string; endDateTime: string; title: string }, b: PersonalTimeInput) =>
   a.startDateTime === b.startDateTime && a.endDateTime === b.endDateTime && a.title === b.title;
 
+export interface PersonalTimeFailure {
+  entry: PersonalTimeInput;
+  status: number;
+  message: string;
+}
+
+export interface PersonalTimeOutcome {
+  schedule: Schedule;
+  failed: PersonalTimeFailure[];
+  /** Entries that only went through after dropping the optional location and long description. */
+  trimmed: number;
+}
+
+/** Same block, with only what the API requires: no location, and a short description that keeps our tags. */
+const minimal = (w: PersonalTimeInput): PersonalTimeInput => ({
+  startDateTime: w.startDateTime,
+  endDateTime: w.endDateTime,
+  title: w.title,
+  description: `${PT_TAG}${w.description.includes('travel:') ? ' travel:' : ''}`,
+});
+
 /**
  * Creates personal-time entries that are not already there. Create returns no body,
  * so we read GetSchedule afterwards. After an unknown outcome we re-read before trying again.
+ * One refused entry does not stop the others: it is reported in `failed` with the API's own message.
  */
-export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeInput[]): Promise<Schedule> {
+export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeInput[]): Promise<PersonalTimeOutcome> {
   let schedule = await getSchedule(eventId);
-  for (const w of wanted) {
-    if (schedule.personalTime.some((p) => same(p, w))) continue;
+  const failed: PersonalTimeFailure[] = [];
+  let trimmed = 0;
+
+  const create = async (w: PersonalTimeInput) => {
     try {
       await createPersonalTime(eventId, w);
     } catch (e) {
@@ -128,8 +153,45 @@ export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeIn
       schedule = await getSchedule(eventId);
       if (!schedule.personalTime.some((p) => same(p, w))) await createPersonalTime(eventId, w).catch(() => {});
     }
+  };
+
+  for (const w of wanted) {
+    if (schedule.personalTime.some((p) => same(p, w))) continue;
+    try {
+      await create(w);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 400) throw e;
+      // Refused as sent. Try once with only the required fields, so we can tell a bad optional field
+      // from a real conflict (e.g. it overlaps something already on the schedule).
+      try {
+        await create(minimal(w));
+        trimmed++;
+      } catch (e2) {
+        if (!(e2 instanceof ApiError) || e2.status !== 400) throw e2;
+        failed.push({ entry: w, status: e2.status, message: e2.message });
+      }
+    }
   }
-  return getSchedule(eventId);
+  schedule = await getSchedule(eventId);
+  return { schedule, failed, trimmed };
+}
+
+/** Plain-language summary of a personal-time write, for a banner. */
+export function describePersonalTime(o: PersonalTimeOutcome, total: number, tz: string): { ok: boolean; text: string } {
+  const lines: string[] = [];
+  const added = total - o.failed.length;
+  lines.push(
+    o.failed.length
+      ? `${added} of ${total} walking blocks are on your calendar. ${o.failed.length} refused by the AWS Events API:`
+      : `✓ ${total} walking block${total === 1 ? '' : 's'} on your calendar.`
+  );
+  for (const f of o.failed) {
+    const start = fromApiUtc(f.entry.startDateTime);
+    const end = fromApiUtc(f.entry.endDateTime);
+    lines.push(`✗ "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}: ${f.message || `error ${f.status}`}`);
+  }
+  if (o.trimmed) lines.push(`(${o.trimmed} only worked without the location and details, so those were left off.)`);
+  return { ok: o.failed.length === 0, text: lines.join('\n') };
 }
 
 export function travelToInput(t: TravelBlock): PersonalTimeInput {
@@ -137,13 +199,13 @@ export function travelToInput(t: TravelBlock): PersonalTimeInput {
     startDateTime: toApiUtc(t.start),
     endDateTime: toApiUtc(t.end),
     title: t.title.slice(0, 128),
-    description: `${PT_TAG} travel: ${t.fromVenue} -> ${t.toVenue}`.slice(0, 250),
+    description: `${PT_TAG} travel: ${t.fromVenue} to ${t.toVenue}`.slice(0, 250),
     location: t.toVenue.slice(0, 255),
   };
 }
 
 /** Makes the travel blocks on the schedule match `blocks`: adds missing ones, removes stale ones we created. */
-export async function syncTravelBlocks(eventId: string, blocks: TravelBlock[]): Promise<Schedule> {
+export async function syncTravelBlocks(eventId: string, blocks: TravelBlock[]): Promise<PersonalTimeOutcome> {
   const wanted = blocks.map(travelToInput);
   const schedule = await getSchedule(eventId);
   const stale = schedule.personalTime.filter(

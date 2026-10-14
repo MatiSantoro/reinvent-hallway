@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, View } from 'react-native';
 import { BackendNotConfigured } from '../api/backend';
-import { CERTS } from '../data/certs';
+import { CERTS, certLabel } from '../data/certs';
 import { DEFAULT_GOALS, distinctTypes, Goals } from '../logic/filter';
 import { makePlan, PlanOutput } from '../logic/planner';
-import { favoriteAll, reserveAll, syncTravelBlocks } from '../logic/reconcile';
+import { describePersonalTime, failureText, favoriteAll, reserveAll, syncTravelBlocks } from '../logic/reconcile';
 import { dayKey, fmtDay, fmtRange, sessionInterval } from '../logic/time';
 import { useApp } from '../state/AppState';
 import { describeReport } from '../state/useActions';
@@ -17,13 +17,19 @@ const EXAMPLES = [
   'Cost optimization and FinOps for a platform team',
 ];
 
+type Report = { text: string; kind: 'info' | 'good' | 'bad' };
+type Note = { text: string; ok: boolean };
+
 export function PlanScreen() {
   const app = useApp();
   const [g, setG] = useState<Goals>(DEFAULT_GOALS);
   const [plan, setPlan] = useState<PlanOutput | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [report, setReport] = useState<string | null>(null);
+  const [report, setReport] = useState<Report | null>(null);
   const [fullIds, setFullIds] = useState<string[]>([]);
+  // What happened to each session on the last "Reserve all", shown on its own card.
+  const [notes, setNotes] = useState<Record<string, Note>>({});
+  const [status, setStatus] = useState<string | null>(null);
 
   const types = useMemo(() => distinctTypes(app.sessions).slice(0, 8), [app.sessions]);
   const days = useMemo(() => {
@@ -41,16 +47,26 @@ export function PlanScreen() {
       return { ...old, [k]: list.includes(v) ? list.filter((x) => x !== v) : [...list, v] };
     });
 
+  const say = (text: string, kind: Report['kind'] = 'info') => setReport({ text, kind });
+
   const build = async (exclude: string[] = []) => {
     setBusy('plan');
     setReport(null);
+    setNotes({});
     try {
+      setStatus('Checking your schedule...');
       const schedule = await app.refreshSchedule();
+      setStatus(
+        g.text.trim() || g.certs.length
+          ? 'Asking the agent to pick sessions. This usually takes 10 to 25 seconds...'
+          : 'Ranking sessions...'
+      );
       setPlan(await makePlan(app.sessions, app.byId, schedule, g, app.tz, new Set(exclude)));
     } catch (e) {
       Alert.alert('Could not plan', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
+      setStatus(null);
     }
   };
 
@@ -64,9 +80,17 @@ export function PlanScreen() {
   }, [plan, app.tz]);
 
   const ids = plan?.items.map((i) => i.session.sessionId) || [];
+  const reservedSet = useMemo(() => new Set(app.schedule.reserved), [app.schedule.reserved]);
+  const favSet = useMemo(() => new Set(app.schedule.favorites), [app.schedule.favorites]);
+  const reservedCount = ids.filter((id) => reservedSet.has(id)).length;
 
   return (
-    <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      contentContainerStyle={{ paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      automaticallyAdjustKeyboardInsets
+    >
       <Title sub="Tell the agent what you want. It picks, Hallway checks clashes and walking time.">Plan my week</Title>
       <View style={{ paddingHorizontal: 16 }}>
         <Field
@@ -86,7 +110,7 @@ export function PlanScreen() {
         <H>Studying for a certification?</H>
         <Row>
           {CERTS.map((c) => (
-            <Chip key={c.id} label={c.name} on={g.certs.includes(c.id)} onPress={() => toggle('certs', c.id)} />
+            <Chip key={c.id} label={certLabel(c)} on={g.certs.includes(c.id)} onPress={() => toggle('certs', c.id)} />
           ))}
         </Row>
 
@@ -122,10 +146,20 @@ export function PlanScreen() {
         <H>Hours and pace</H>
         <Row style={{ flexWrap: 'nowrap' }}>
           <View style={{ flex: 1 }}>
-            <Field label="Earliest" value={g.earliest} onChangeText={(earliest) => setG({ ...g, earliest })} />
+            <Field
+              label="Earliest"
+              value={g.earliest}
+              keyboardType="numbers-and-punctuation"
+              onChangeText={(earliest) => setG({ ...g, earliest })}
+            />
           </View>
           <View style={{ flex: 1 }}>
-            <Field label="Latest" value={g.latest} onChangeText={(latest) => setG({ ...g, latest })} />
+            <Field
+              label="Latest"
+              value={g.latest}
+              keyboardType="numbers-and-punctuation"
+              onChangeText={(latest) => setG({ ...g, latest })}
+            />
           </View>
           <View style={{ flex: 1 }}>
             <Field
@@ -138,6 +172,12 @@ export function PlanScreen() {
         </Row>
 
         <Btn label="Build my week" busy={busy === 'plan'} onPress={() => build()} style={{ marginTop: 8 }} />
+        {status ? (
+          <Row style={{ marginTop: 12, flexWrap: 'nowrap' }}>
+            <ActivityIndicator color={C.accent} />
+            <Text style={{ color: C.dim, fontSize: 13, flex: 1 }}>{status}</Text>
+          </Row>
+        ) : null}
       </View>
 
       {plan ? (
@@ -161,9 +201,12 @@ export function PlanScreen() {
               {plan.items.length} sessions · {plan.travel.length} walking blocks · {plan.skipped.length} left out
               (clash, full day or no time to get there)
             </P>
+            <P style={{ marginTop: 8, color: reservedCount === ids.length && ids.length ? C.good : C.text, fontWeight: '700' }}>
+              {reservedCount} of {ids.length} reserved
+            </P>
           </Card>
 
-          {report ? <Banner kind="info" text={report} /> : null}
+          {report ? <Banner kind={report.kind} text={report.text} /> : null}
 
           <Row style={{ marginBottom: 8 }}>
             <Btn
@@ -175,11 +218,11 @@ export function PlanScreen() {
               onPress={async () => {
                 setBusy('fav');
                 try {
-                  const r = await favoriteAll(app.eventId, ids, (m) => setReport(m));
+                  const r = await favoriteAll(app.eventId, ids, (m) => say(m));
                   app.setSchedule(r.schedule);
-                  setReport(describeReport(r, app.byId, 'Favoriting'));
+                  say(describeReport(r, app.byId, 'Favoriting'), r.failed.length ? 'bad' : 'good');
                 } catch (e) {
-                  setReport(e instanceof Error ? e.message : String(e));
+                  say(e instanceof Error ? e.message : String(e), 'bad');
                 } finally {
                   setBusy(null);
                 }
@@ -193,12 +236,22 @@ export function PlanScreen() {
               onPress={async () => {
                 setBusy('res');
                 try {
-                  const r = await reserveAll(app.eventId, plan.items.map((i) => i.session), (m) => setReport(m));
+                  const r = await reserveAll(app.eventId, plan.items.map((i) => i.session), (m) => say(m));
                   app.setSchedule(r.schedule);
-                  setReport(describeReport(r, app.byId, 'Reserving'));
+                  say(describeReport(r, app.byId, 'Reserving'), r.failed.length ? 'bad' : 'good');
                   setFullIds(r.failed.filter((f) => f.code === 'sessionFull').map((f) => f.sessionId));
+                  // Put each outcome on the card it belongs to.
+                  const next: Record<string, Note> = {};
+                  for (const f of r.failed) {
+                    const clash = f.conflictsWith?.length
+                      ? ` (with ${f.conflictsWith.map((id) => app.byId.get(id)?.abbreviation || id).join(', ')})`
+                      : '';
+                    next[f.sessionId] = { text: `Not reserved: ${failureText(f.code)}${clash}`, ok: false };
+                  }
+                  for (const sk of r.skipped) next[sk.sessionId] = { text: sk.why, ok: false };
+                  setNotes(next);
                 } catch (e) {
-                  setReport(e instanceof Error ? e.message : String(e));
+                  say(e instanceof Error ? e.message : String(e), 'bad');
                 } finally {
                   setBusy(null);
                 }
@@ -213,16 +266,21 @@ export function PlanScreen() {
               onPress={async () => {
                 setBusy('walk');
                 try {
-                  app.setSchedule(await syncTravelBlocks(app.eventId, plan.travel));
-                  setReport(`✓ ${plan.travel.length} walking blocks are on your calendar.`);
+                  const o = await syncTravelBlocks(app.eventId, plan.travel);
+                  app.setSchedule(o.schedule);
+                  const d = describePersonalTime(o, plan.travel.length, app.tz);
+                  say(d.text, d.ok ? 'good' : 'bad');
                 } catch (e) {
-                  setReport(e instanceof Error ? e.message : String(e));
+                  say(e instanceof Error ? e.message : String(e), 'bad');
                 } finally {
                   setBusy(null);
                 }
               }}
             />
           </Row>
+          <P dim style={{ fontSize: 12, marginBottom: 8 }}>
+            Or reserve one at a time with the button on each session. A green border means you have a seat.
+          </P>
           {fullIds.length ? (
             <Btn
               kind="ghost"
@@ -250,8 +308,10 @@ export function PlanScreen() {
                       s={i.session}
                       tz={app.tz}
                       reason={i.reason}
-                      reserved={app.schedule.reserved.includes(i.session.sessionId)}
-                      favorite={app.schedule.favorites.includes(i.session.sessionId)}
+                      reserved={reservedSet.has(i.session.sessionId)}
+                      favorite={favSet.has(i.session.sessionId)}
+                      note={notes[i.session.sessionId]}
+                      actions
                     />
                   </View>
                 );

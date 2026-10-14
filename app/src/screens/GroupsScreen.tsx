@@ -66,7 +66,7 @@ export function GroupsScreen() {
   if (open) return <GroupDetail groupId={open} onBack={() => (setOpen(null), reload())} />;
 
   return (
-    <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
       <Title sub="A shared calendar for your crew. Everyone keeps their own AWS login.">Groups</Title>
       <View style={{ paddingHorizontal: 16 }}>
         {err ? <Banner kind="bad" text={err} /> : null}
@@ -220,23 +220,23 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
         }
       } else {
         // A meetup becomes personal time on your own re:Invent calendar.
-        app.setSchedule(
-          await ensurePersonalTime(app.eventId, [
-            {
-              startDateTime: toApiUtc(i.start),
-              endDateTime: toApiUtc(i.end),
-              title: i.title.slice(0, 128),
-              description: `${PT_TAG} ${st.group.name}`.slice(0, 250),
-              ...(i.location ? { location: i.location.slice(0, 255) } : {}),
-            },
-          ])
-        );
+        const o = await ensurePersonalTime(app.eventId, [
+          {
+            startDateTime: toApiUtc(i.start),
+            endDateTime: toApiUtc(i.end),
+            title: i.title.slice(0, 128),
+            description: `${PT_TAG} ${st.group.name}`.slice(0, 250),
+            ...(i.location ? { location: i.location.slice(0, 255) } : {}),
+          },
+        ]);
+        app.setSchedule(o.schedule);
+        if (o.failed.length) throw new Error(`The AWS Events API refused this block: ${o.failed[0].message}`);
       }
       await load();
     });
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
       <Btn small kind="ghost" label="‹ Groups" onPress={onBack} style={{ alignSelf: 'flex-start', marginBottom: 8 }} />
       <Text style={{ color: C.text, fontSize: 26, fontWeight: '800' }}>{st.group.name}</Text>
       <P dim style={{ marginTop: 4 }}>
