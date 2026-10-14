@@ -22,12 +22,12 @@ def api(monkeypatch):
         monkeypatch.setattr(groups, "_table", None)
         monkeypatch.setenv("API_KEY", "test-key")
 
-        def call(method, path, body=None, member=None, query=None, key="test-key"):
+        def call(method, path, body=None, member=None, query=None, key="test-key", ip="203.0.113.7"):
             headers = {"X-Api-Key": key} if key is not None else {}
             if member:
                 headers.update({"X-Member-Id": member["memberId"], "X-Member-Secret": member["secret"]})
             ev = {
-                "requestContext": {"http": {"method": method}},
+                "requestContext": {"http": {"method": method, "sourceIp": ip}},
                 "rawPath": path,
                 "headers": headers,
                 "queryStringParameters": query,
@@ -136,3 +136,46 @@ def test_bad_plan_request_does_not_use_a_slot(api, fake_bedrock, monkeypatch):
     monkeypatch.setenv("PLAN_DAILY_LIMIT", "1")
     assert api("POST", "/plan", {"goals": "x", "candidates": []})[0] == 400
     assert api("POST", "/plan", PLAN_BODY)[0] == 200
+
+
+def test_plan_limit_per_caller_does_not_block_others(api, fake_bedrock, monkeypatch):
+    monkeypatch.setenv("PLAN_DAILY_LIMIT", "100")
+    monkeypatch.setenv("PLAN_DAILY_LIMIT_PER_IP", "2")
+    assert api("POST", "/plan", PLAN_BODY, ip="198.51.100.1")[0] == 200
+    assert api("POST", "/plan", PLAN_BODY, ip="198.51.100.1")[0] == 200
+    status, body = api("POST", "/plan", PLAN_BODY, ip="198.51.100.1")
+    assert status == 429 and "your planning calls" in body["message"].lower()
+    # A different caller still gets through, and the refused call never reached Bedrock.
+    assert api("POST", "/plan", PLAN_BODY, ip="198.51.100.2")[0] == 200
+    assert fake_bedrock.calls == 3
+
+
+def test_shared_limit_still_applies_across_callers(api, fake_bedrock, monkeypatch):
+    monkeypatch.setenv("PLAN_DAILY_LIMIT", "2")
+    monkeypatch.setenv("PLAN_DAILY_LIMIT_PER_IP", "10")
+    assert api("POST", "/plan", PLAN_BODY, ip="198.51.100.1")[0] == 200
+    assert api("POST", "/plan", PLAN_BODY, ip="198.51.100.2")[0] == 200
+    assert api("POST", "/plan", PLAN_BODY, ip="198.51.100.3")[0] == 429
+
+
+def test_group_creation_limit_per_caller(api, monkeypatch):
+    monkeypatch.setenv("GROUP_DAILY_LIMIT_PER_IP", "2")
+    new = {"name": "g", "displayName": "me"}
+    assert api("POST", "/groups", new, ip="198.51.100.1")[0] == 200
+    assert api("POST", "/groups", new, ip="198.51.100.1")[0] == 200
+    assert api("POST", "/groups", new, ip="198.51.100.1")[0] == 429
+    assert api("POST", "/groups", new, ip="198.51.100.2")[0] == 200
+
+
+def test_caller_address_is_stored_only_as_a_hash(api, fake_bedrock):
+    import groups
+
+    assert api("POST", "/plan", PLAN_BODY, ip="198.51.100.9")[0] == 200
+    keys = [i["pk"] for i in groups.table().scan()["Items"] if i["pk"].startswith("QUOTA#")]
+    assert keys and not any("198.51.100.9" in k for k in keys)
+
+
+def test_limit_of_zero_turns_planning_off(api, fake_bedrock, monkeypatch):
+    monkeypatch.setenv("PLAN_DAILY_LIMIT", "0")
+    assert api("POST", "/plan", PLAN_BODY)[0] == 429
+    assert fake_bedrock.calls == 0

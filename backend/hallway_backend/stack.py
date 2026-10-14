@@ -27,6 +27,8 @@ class HallwayStack(Stack):
         if not api_key:
             raise ValueError("Set the app key: cdk deploy -c apiKey=<random string> (or env HALLWAY_API_KEY)")
         plan_daily_limit = int(self.node.try_get_context("planDailyLimit") or 100)
+        plan_limit_per_ip = int(self.node.try_get_context("planDailyLimitPerIp") or 25)
+        group_limit_per_ip = int(self.node.try_get_context("groupDailyLimitPerIp") or 20)
         expires = datetime.strptime(self.node.try_get_context("expiresAt") or "2027-01-31", "%Y-%m-%d")
         expires_at = int(expires.replace(tzinfo=timezone.utc).timestamp())
 
@@ -56,6 +58,8 @@ class HallwayStack(Stack):
                 "EXPIRES_AT": str(expires_at),
                 "API_KEY": api_key,
                 "PLAN_DAILY_LIMIT": str(plan_daily_limit),
+                "PLAN_DAILY_LIMIT_PER_IP": str(plan_limit_per_ip),
+                "GROUP_DAILY_LIMIT_PER_IP": str(group_limit_per_ip),
             },
             log_group=logs.LogGroup(
                 self, "ApiLogs", retention=logs.RetentionDays.ONE_MONTH, removal_policy=RemovalPolicy.DESTROY

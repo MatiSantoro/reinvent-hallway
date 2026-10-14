@@ -48,7 +48,7 @@ Members only share their busy times, never what the busy times are.
 ## What to expect
 
 - **Planning is not instant.** The agent call takes roughly 10 to 25 seconds, and the screen says what it is doing.
-- **Shared limits.** To keep the demo cheap, planning is capped at 100 calls a day across all judges. If you ever see "Daily planning limit reached", the phone falls back to ranking sessions locally.
+- **Shared limits.** To keep the demo cheap, planning is capped at 100 calls a day across all judges, and at 25 a day for each person (a group of judges on the same Wi-Fi share that 25). If you ever see a "planning limit" message, the phone falls back to ranking sessions locally.
 - **The AWS Events API can say no.** It can close an operation (`409`), refuse when you are over a quota (`429`, Hallway waits and retries), or report a session as full. Hallway shows these messages instead of hiding them, and checks `GetSchedule` after every change.
 - **Walking times and certification mappings are our own estimates.** The API has venue names but no coordinates, and no certification field.
 

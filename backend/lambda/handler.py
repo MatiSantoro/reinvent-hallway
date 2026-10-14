@@ -20,7 +20,7 @@ I = r"(?P<i>[A-Za-z0-9xy]{6,20})"
 # (method, path regex, needs member auth, handler(match, me, body, query))
 ROUTES: list[tuple[str, re.Pattern, bool, Callable[..., Any]]] = [
     ("POST", re.compile(r"^/plan$"), False, lambda m, me, b, q: planner.plan(b, before_call=guard.take_plan_slot)),
-    ("POST", re.compile(r"^/groups$"), False, lambda m, me, b, q: groups.create_group(b)),
+    ("POST", re.compile(r"^/groups$"), False, lambda m, me, b, q: _create_group(b)),
     ("POST", re.compile(r"^/groups/join$"), False, lambda m, me, b, q: groups.join_group(b)),
     ("GET", re.compile(rf"^/groups/{G}$"), True, lambda m, me, b, q: groups.get_group(m["g"], me)),
     ("POST", re.compile(rf"^/groups/{G}/items$"), True, lambda m, me, b, q: groups.add_item(m["g"], me, b)),
@@ -31,6 +31,11 @@ ROUTES: list[tuple[str, re.Pattern, bool, Callable[..., Any]]] = [
     ("POST", re.compile(rf"^/groups/{G}/split$"), True, lambda m, me, b, q: groups.split(m["g"])),
     ("DELETE", re.compile(rf"^/groups/{G}/members/me$"), True, lambda m, me, b, q: groups.leave(m["g"], me)),
 ]
+
+
+def _create_group(body: dict) -> dict:
+    guard.take_group_slot()
+    return groups.create_group(body)
 
 
 def _resp(status: int, body: Any) -> dict:
@@ -48,6 +53,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
     query = event.get("queryStringParameters") or {}
 
     try:
+        guard.set_caller(event.get("requestContext", {}).get("http", {}).get("sourceIp"))
         guard.check_api_key(headers)
         body = json.loads(event.get("body") or "{}") if method in ("POST", "PUT") else {}
         if not isinstance(body, dict):

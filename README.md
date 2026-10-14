@@ -97,7 +97,7 @@ cdk bootstrap        # first time per account/region
 cdk deploy -c apiKey=<random string> -c alertEmail=you@example.com   # alertEmail is optional
 ```
 
-Pick any random string for `apiKey` (or set `HALLWAY_API_KEY`); the app sends it as `x-api-key`. `/plan` is capped at 100 calls a day (`planDailyLimit` in `cdk.json`). See [DECISIONS.md](DECISIONS.md) for what these guards do and don't do.
+Pick any random string for `apiKey` (or set `HALLWAY_API_KEY`); the app sends it as `x-api-key`. `/plan` is capped at 100 calls a day for everyone and 25 per caller, and each caller can create 20 groups a day (`planDailyLimit`, `planDailyLimitPerIp`, `groupDailyLimitPerIp`; pass them with `-c` or put them in `cdk.json`). See [DECISIONS.md](DECISIONS.md) for what these guards do and don't do.
 
 Copy the `ApiUrl` output; that is your backend address. The model is set in `cdk.json` (`bedrockModelId`), change it to any Claude model your account can use.
 
