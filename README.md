@@ -2,6 +2,11 @@
 
 Plan your re:Invent 2026 week, alone or with your crew.
 
+> ### Judges: start here
+> **You do not need to deploy anything.** No AWS account, no CDK, no backend. The backend is already running and shared by everyone who tries the app. Read **[JUDGES.md](JUDGES.md)**: it has the install link, a five-minute tour, and how to try Groups together from different places.
+>
+> The [Run it yourself](#run-it-yourself) section further down is for developers who want their own copy. You can skip it.
+
 Hallway is a phone app for **iPhone and Android** (Expo / React Native) built on the new [AWS Events API](https://docs.aws.amazon.com/events/latest/devguide/what-is-events-api.html). You tell it what you want from re:Invent, an agent on Amazon Bedrock picks sessions, and Hallway builds a week that actually works: no clashes, a daily limit, and enough time to walk between venues. Then it favorites, reserves and blocks time in your real re:Invent account, and checks that every change landed.
 
 With **groups**, you and your friends or team share a calendar: propose sessions, tap "I'm in" to reserve your own seat, find a time when everyone is free, or split sessions so the team covers more.
@@ -30,7 +35,7 @@ All 12 operations of the API are used.
 
 ```mermaid
 flowchart LR
-  subgraph Phone["iPhone (Hallway app)"]
+  subgraph Phone["Phone (Hallway app, iPhone or Android)"]
     UI[Screens] --> Logic[Filter + scheduler + reconcile]
     Logic --> Client[Events REST client]
     Auth[Builder ID sign-in<br/>loopback :8484] --> Client
@@ -64,17 +69,25 @@ backend/             AWS CDK app (Python)
   tests/             pytest (moto for DynamoDB)
 ```
 
-## Requirements
+## Run it yourself
 
-- You must be registered for re:Invent 2026, or the catalog returns `403`
-- Node.js 20+ and git
-- To run on **iPhone or the iOS Simulator**: a Mac with Xcode (iOS apps can't be built on Windows or Linux)
-- To run on **Android**: an Android phone or emulator. Building on your own computer (Windows, macOS or Linux) needs [Android Studio](https://developer.android.com/studio) (which brings the Android SDK) and JDK 17. Or skip all that and use the [cloud build](#android-phone-without-android-studio-cloud-build).
-- For the backend: Python 3.12+, AWS CDK v2 (`npm i -g aws-cdk`), an AWS account with access to an Anthropic Claude model in Amazon Bedrock (us-east-1)
+> **Not a judge? Read this first.** Hallway has two parts: the **app** on a phone, and a small **backend** (API Gateway, Lambda, DynamoDB, Bedrock) that powers the agent and Groups. The app needs a backend address to talk to, and you have two ways to get one:
+>
+> - **Use a backend that already exists.** If someone gives you a backend address and key (for example the Hallway team, for a demo), you only run the app. Skip step 1. **Judges do this.**
+> - **Deploy your own backend.** Your own AWS account, about a minute with CDK. Needed only if you want your own copy, for example after forking. People on different backends cannot join each other's groups.
+>
+> Without any backend the app still works, but planning falls back to ranking on the phone and Groups is turned off.
 
-## Run it
+### What you need
 
-### 1. Deploy the backend (optional, but needed for the agent and groups)
+| For | You need |
+|---|---|
+| Any use | A Builder ID registered for re:Invent 2026 (otherwise the catalog returns `403`), Node.js 20+, git |
+| The app on an **iPhone or the iOS Simulator** | A Mac with Xcode (iOS apps can't be built on Windows or Linux) |
+| The app on **Android** | An Android phone or emulator. Building on your own computer (Windows, macOS or Linux) needs [Android Studio](https://developer.android.com/studio) and JDK 17, or use the [cloud build](#android-phone-without-android-studio-cloud-build), which needs neither |
+| **Deploying your own backend** (step 1 only) | Python 3.12+, AWS CDK v2 (`npm i -g aws-cdk`), an AWS account with access to an Anthropic Claude model in Amazon Bedrock (us-east-1) |
+
+### 1. Deploy your own backend (skip if you were given a backend address)
 
 ```bash
 cd backend
@@ -86,20 +99,18 @@ cdk deploy -c apiKey=<random string> -c alertEmail=you@example.com   # alertEmai
 
 Pick any random string for `apiKey` (or set `HALLWAY_API_KEY`); the app sends it as `x-api-key`. `/plan` is capped at 100 calls a day (`planDailyLimit` in `cdk.json`). See [DECISIONS.md](DECISIONS.md) for what these guards do and don't do.
 
-Copy the `ApiUrl` output. The model is set in `cdk.json` (`bedrockModelId`), change it to any Claude model your account can use.
-
-Without the backend, the app still works: planning falls back to ranking on the phone, and groups are disabled.
+Copy the `ApiUrl` output; that is your backend address. The model is set in `cdk.json` (`bedrockModelId`), change it to any Claude model your account can use.
 
 ### 2. Set up the app (once)
 
 ```bash
 cd app
 npm install
-echo "EXPO_PUBLIC_BACKEND_URL=https://xxxx.execute-api.us-east-1.amazonaws.com" > .env
-echo "EXPO_PUBLIC_API_KEY=<the same apiKey>" >> .env
+echo "EXPO_PUBLIC_BACKEND_URL=<backend address: the ApiUrl from step 1, or the one you were given>" > .env
+echo "EXPO_PUBLIC_API_KEY=<the matching app key>" >> .env
 ```
 
-The `.env` file is not in git, so every new clone needs it. Skip the two `echo` lines to run without the backend.
+The `.env` file is not in git, so every new clone needs it. Skip the two `echo` lines to run without a backend.
 
 ### 3. Build the app once, then run it
 
@@ -123,13 +134,13 @@ Pick the row that matches you:
 
 #### Android phone without Android Studio (cloud build)
 
-This builds an installable `.apk` on Expo's servers (free Expo account), so it needs no Android SDK, and the app runs without your computer.
+This builds an installable `.apk` on Expo's servers (free Expo account), so it needs no Android SDK, and the app runs without your computer. This is also how you make an install link to hand to other people.
 
 ```bash
 npx eas-cli login
 npx eas-cli init                 # once: links this project to your Expo account
-npx eas-cli env:set --environment preview --name EXPO_PUBLIC_BACKEND_URL --value https://xxxx.execute-api.us-east-1.amazonaws.com --visibility plaintext
-npx eas-cli env:set --environment preview --name EXPO_PUBLIC_API_KEY --value <the same apiKey> --visibility plaintext
+npx eas-cli env:set --environment preview --name EXPO_PUBLIC_BACKEND_URL --value <backend address> --visibility plaintext
+npx eas-cli env:set --environment preview --name EXPO_PUBLIC_API_KEY --value <the matching app key> --visibility plaintext
 npx eas-cli build --platform android --profile preview
 ```
 
@@ -156,7 +167,7 @@ npx expo run:ios --device --configuration Release          # Mac
 npx expo run:android --device --variant release            # Android, plugged in
 ```
 
-### 4. Tests
+### Tests
 
 ```bash
 cd backend && pip install -r requirements-dev.txt && python -m pytest

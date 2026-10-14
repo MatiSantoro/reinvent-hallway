@@ -1,0 +1,69 @@
+# For the judges
+
+Thanks for taking a look at Hallway. This page is everything you need. **You do not need an AWS account, and you do not need to deploy or run any backend.** The backend is already running and is shared by everyone who tries the app.
+
+## What it is
+
+Hallway is a phone app (iPhone and Android) that plans your re:Invent 2026 week. You say what you want to learn, an agent on Amazon Bedrock picks sessions, and Hallway builds a week with no clashes and time to walk between venues. It then reserves seats in your real re:Invent account, and lets a group of friends share a calendar and find the time everyone is free. It uses all 12 operations of the AWS Events API.
+
+## What you need
+
+- **A phone**, Android or iPhone.
+- **An AWS Builder ID that is registered for re:Invent 2026.** The app signs you in and reads your real schedule from the AWS Events API. For an account that isn't registered, that API refuses the request (`403`) and the app stops on the sign-in screen with a "not registered" message. If that's you, use the demo video below.
+
+That's all. No AWS account, no CDK, no Xcode, no Android Studio.
+
+## Ways to try it
+
+Pick one.
+
+| | How |
+|---|---|
+| **Android** | Install the app from this link: **`<APK LINK: add before submitting>`**. Open it on the phone, download the file, and allow "install unknown apps" for your browser when Android asks. |
+| **iPhone** | **`<TESTFLIGHT LINK, if available: add before submitting, or delete this row>`**. |
+| **Watch, no install** | Demo video: **`<VIDEO LINK: add before submitting>`** |
+| **Build it yourself** | Only if you want to. See [Run it yourself](README.md#run-it-yourself) in the README. You will need the backend address and app key from the submission notes (they are not in this repository). |
+
+## Five-minute tour
+
+1. **Sign in** with your Builder ID. The browser opens, you approve, and you come back to the app. Your login stays on the phone.
+2. **Plan.** Type something like *"Agents and MCP, Python, nothing before 9am, one fun session outside my job"*, or pick a certification (the chips show current exam versions). Tap **Build my week**. The agent takes roughly 10 to 25 seconds. You get a day-by-day plan with a reason for each pick and walking blocks between venues.
+3. **Reserve.** Use **Reserve** on a single session, or **Reserve all**. A green border and "✓ RESERVED" mean you hold a seat. If a session can't be booked, its card says why (full, clash, and so on).
+4. **Explore.** Search and filter the whole catalog. Everything is filtered on the phone.
+5. **My week.** *Schedule* shows what you hold seats for; *Favorites* shows what you only starred. **Sync walking time** adds walking blocks to your calendar.
+6. **Groups.** See below.
+
+> **Heads up: reservations are real.** Reserve, favorite and walking-time actions change your actual re:Invent schedule. You can undo them from **My week** (Cancel seat, Unfavorite, Remove).
+
+## Trying Groups together
+
+You do not need to be in the same room or on the same Wi-Fi. A group lives on the shared backend, not on anyone's phone.
+
+1. Judge A opens **Groups**, creates a group (*Squad: go together* or *Team: split and cover more*), and shares the **invite code** (8 characters, unique to that group) or the invite link.
+2. Judge B opens **Groups**, enters the code, and joins. Up to 50 people can join one group.
+3. Both can now propose sessions, tap **I'm in** to reserve their own seat, use **Find free time**, and in a Team group use **Split sessions** so the team covers more ground.
+
+Members only share their busy times, never what the busy times are.
+
+## What to expect
+
+- **Planning is not instant.** The agent call takes roughly 10 to 25 seconds, and the screen says what it is doing.
+- **Shared limits.** To keep the demo cheap, planning is capped at 100 calls a day across all judges. If you ever see "Daily planning limit reached", the phone falls back to ranking sessions locally.
+- **The AWS Events API can say no.** It can close an operation (`409`), refuse when you are over a quota (`429`, Hallway waits and retries), or report a session as full. Hallway shows these messages instead of hiding them, and checks `GetSchedule` after every change.
+- **Walking times and certification mappings are our own estimates.** The API has venue names but no coordinates, and no certification field.
+
+## Privacy and design
+
+Your AWS login never leaves your phone, and the backend cannot tell who is calling it. That is deliberate, and it is why the backend is protected with limits rather than logins. [DECISIONS.md](DECISIONS.md) explains the trade-offs, including why we did not verify the token on the server.
+
+## Where to look in the code
+
+| What | Where |
+|---|---|
+| Builder ID sign-in (OAuth + PKCE, local callback) | `app/src/api/auth.ts`, `app/src/api/loopback.ts` |
+| All 12 AWS Events API operations | `app/src/api/events.ts` |
+| Write, then verify (no blind retries) | `app/src/logic/reconcile.ts` |
+| Clashes, daily cap, walking time | `app/src/logic/scheduler.ts` |
+| Agent planner (Bedrock via our backend) | `app/src/logic/planner.ts`, `backend/lambda/planner.py` |
+| Groups, free-time finder, team split | `backend/lambda/groups.py`, `backend/lambda/schedule_math.py` |
+| Architecture diagram | [README](README.md#how-it-works) |
