@@ -22,7 +22,18 @@ Pick one.
 | **Android** | Download `hallway.apk` from the **[latest release](https://github.com/MatiSantoro/reinvent-hallway/releases/latest)**. Open it on the phone and allow "install unknown apps" for your browser when Android asks. |
 | **iPhone** | There is no installable iPhone file: that needs a paid Apple Developer account, which we don't have. If you have a **Mac with Xcode** and an iPhone, you can build it onto your phone with a free Apple ID in a few minutes: follow [Run it on an iPhone](README.md#run-it-on-an-iphone-no-paid-apple-account) in the README (`npx expo run:ios --device`). The app then works for 7 days. |
 | **Watch, no install** | Demo video: **`<VIDEO LINK: add before submitting>`** |
-| **Build it yourself** | Only if you want to. See [Run it yourself](README.md#run-it-yourself) in the README. You will need the shared backend address and app key: **`<BACKEND ADDRESS AND APP KEY: to be added>`**. |
+| **Build it yourself** | Only if you want to. See [Run it yourself](README.md#run-it-yourself) in the README. You will need the shared backend address and app key, listed [just below](#backend-address-and-key-for-building-it-yourself). |
+
+## Backend address and key (for building it yourself)
+
+Only needed if you build the app yourself. Put these two lines in a file called `app/.env`:
+
+```
+EXPO_PUBLIC_BACKEND_URL=https://9y85ebqg0m.execute-api.us-east-1.amazonaws.com
+EXPO_PUBLIC_API_KEY=d71d7673db1a1ba4d9aff36f16b9d8ca90fe2cc5a769b90a
+```
+
+This is the shared backend that every judge uses. The key is not a secret: it ships inside the app and this repository is public, so anyone can read it. It only keeps casual traffic out. What protects the backend is a daily limit on planning calls, shared and per person. [DECISIONS.md](DECISIONS.md) explains why. The backend is switched off after judging, so these values stop working then.
 
 ## Five-minute tour
 
