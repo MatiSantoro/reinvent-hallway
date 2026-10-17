@@ -29,6 +29,12 @@
       "expo-secure-store",
       "expo-web-browser"
     ],
-    "scheme": "hallway"
+    "scheme": "hallway",
+    "extra": {
+      "eas": {
+        "projectId": "629eec80-beb4-40aa-babb-dbfb6f6abcb8"
+      }
+    },
+    "owner": "matisantoro"
   }
 }
