@@ -197,7 +197,7 @@ export function WeekScreen() {
                     },
                   ]);
                   app.setSchedule(o.schedule);
-                  if (o.failed.length) throw new Error(`The AWS Events API refused this block: ${o.failed[0].message}`);
+                  if (o.failed.length) throw new Error(describePersonalTime(o, 1, tz, 'block').text);
                   setBlockDay(null);
                 })
               }

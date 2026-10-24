@@ -22,10 +22,12 @@ import {
 } from '../api/backend';
 import { APP_SCHEME, PT_TAG } from '../config';
 import { venueLabel } from '../data/venues';
-import { ensurePersonalTime, personalInterval, reserveAll } from '../logic/reconcile';
-import { ceil5, dayKey, floor5, fmtDay, fmtRange, sessionInterval, toApiUtc, zonedToUtc } from '../logic/time';
+import { describePersonalTime, ensurePersonalTime, personalInterval, reserveAll } from '../logic/reconcile';
+import { search } from '../logic/filter';
+import { ceil5, clockString, dayKey, floor5, fmtDay, fmtRange, hhmm, parseClock, sessionInterval, toApiUtc, zonedToUtc } from '../logic/time';
 import { useApp } from '../state/AppState';
 import { describeReport } from '../state/useActions';
+import { GroupCalendar } from '../ui/GroupCalendar';
 import { Badge, Banner, Btn, C, Card, Chip, Field, H, P, Row, Title } from '../ui/kit';
 
 const inviteLink = (code: string) => `${APP_SCHEME}://join/${code}`;
@@ -138,7 +140,17 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
   const [picking, setPicking] = useState(false);
   const [freeDay, setFreeDay] = useState<string | null>(null);
   const [free, setFree] = useState<{ slots: Slot[]; reporting: number; members: number } | null>(null);
-  const [meetup, setMeetup] = useState<{ start: number; end: number; title: string; location: string } | null>(null);
+  const [meetup, setMeetup] = useState<{ day: string; from: string; to: string; title: string; location: string } | null>(null);
+  const [view, setView] = useState<'list' | 'calendar'>('calendar');
+  const [calDay, setCalDay] = useState<string | null>(null);
+  // proposing a session: search the whole catalog, or just your own favorites and reservations
+  const [pq, setPq] = useState('');
+  const [pMine, setPMine] = useState(false);
+  const [pDay, setPDay] = useState<string | null>(null);
+  // finding free time: the window and how long it has to be
+  const [freeFrom, setFreeFrom] = useState('08:00');
+  const [freeTo, setFreeTo] = useState('22:00');
+  const [freeMin, setFreeMin] = useState(30);
 
   const load = useCallback(async () => {
     try {
@@ -202,6 +214,17 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
     .map((id) => byId.get(id))
     .filter((s): s is NonNullable<typeof s> => !!s && !proposed.has(s.sessionId) && !!sessionInterval(s, tz));
 
+  const startOf = (x: (typeof app.sessions)[number]) => sessionInterval(x, tz)?.start ?? 0;
+  const pickList = !picking
+    ? []
+    : (() => {
+        let list = pMine ? mine : app.sessions.filter((x) => !proposed.has(x.sessionId) && !!sessionInterval(x, tz));
+        if (pq.trim()) list = search(list, pq);
+        if (pDay) list = list.filter((x) => dayKey(startOf(x), tz) === pDay);
+        return pq.trim() ? list : [...list].sort((a, b) => startOf(a) - startOf(b));
+      })();
+  const calDayShown = calDay || itemsByDay[0]?.[0] || days[0] || null;
+
   /** Busy = my reserved sessions + my personal time. Only times leave the phone. */
   const myBusy = (): Slot[] => [
     ...schedule.reserved
@@ -233,7 +256,7 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
           },
         ]);
         app.setSchedule(o.schedule);
-        if (o.failed.length) throw new Error(`The AWS Events API refused this block: ${o.failed[0].message}`);
+        if (o.failed.length) throw new Error(describePersonalTime(o, 1, tz, 'block').text);
       }
       await load();
     });
@@ -313,9 +336,21 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
 
       {/* ---- propose a session ---- */}
       <H>Shared calendar</H>
+      <Row style={{ marginBottom: 10 }}>
+        <Chip label="Calendar" on={view === 'calendar'} onPress={() => setView('calendar')} />
+        <Chip label="List" on={view === 'list'} onPress={() => setView('list')} />
+      </Row>
       <Row style={{ marginBottom: 8 }}>
         <Btn small label="+ Propose a session" onPress={() => setPicking(!picking)} />
         <Btn small kind="ghost" label="Find free time" onPress={() => setFreeDay(freeDay ? null : days[0] || null)} />
+        <Btn
+          small
+          kind="ghost"
+          label="+ Plan a meetup"
+          onPress={() =>
+            setMeetup(meetup ? null : { day: calDayShown || days[0] || '', from: '18:00', to: '19:00', title: 'Meetup', location: '' })
+          }
+        />
         {team ? (
           <Btn
             small
@@ -338,30 +373,49 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
 
       {picking ? (
         <Card>
-          <P dim style={{ marginBottom: 8 }}>From your favorites and reservations:</P>
-          {!mine.length ? <P dim>Nothing left to propose. Favorite sessions in Explore first.</P> : null}
-          {mine.slice(0, 30).map((s) => {
-            const iv = sessionInterval(s, tz)!;
+          <Field
+            value={pq}
+            onChangeText={setPq}
+            placeholder="Search all sessions: bedrock, AIM301, a speaker..."
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} keyboardShouldPersistTaps="handled">
+            <Row style={{ flexWrap: 'nowrap' }}>
+              <Chip label="★ Mine" on={pMine} onPress={() => setPMine(!pMine)} />
+              {days.map((d) => (
+                <Chip key={d} label={fmtDay(d)} on={pDay === d} onPress={() => setPDay(pDay === d ? null : d)} />
+              ))}
+            </Row>
+          </ScrollView>
+          <P dim style={{ fontSize: 12, marginBottom: 8 }}>
+            {pMine
+              ? 'Showing your favorites and reservations. Turn off ★ Mine to search the whole catalog.'
+              : `Searching all ${app.sessions.length} sessions.`}
+          </P>
+          {!pickList.length ? <P dim>No sessions match.</P> : null}
+          {pickList.slice(0, 30).map((x) => {
+            const iv = sessionInterval(x, tz)!;
             return (
-              <Row key={s.sessionId} style={{ justifyContent: 'space-between', flexWrap: 'nowrap', marginBottom: 10 }}>
+              <Row key={x.sessionId} style={{ justifyContent: 'space-between', flexWrap: 'nowrap', marginBottom: 10 }}>
                 <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={{ color: C.text, fontWeight: '600' }} numberOfLines={2}>{s.title}</Text>
+                  <Text style={{ color: C.text, fontWeight: '600' }} numberOfLines={2}>{x.title}</Text>
                   <P dim style={{ fontSize: 12 }}>{fmtDay(dayKey(iv.start, tz))} · {fmtRange(iv, tz)}</P>
                 </View>
                 <Btn
                   small
                   label="Add"
-                  busy={busy === s.sessionId}
+                  busy={busy === x.sessionId}
                   onPress={() =>
-                    guard(s.sessionId, async () => {
+                    guard(x.sessionId, async () => {
                       // Only id, title, time and venue go to the group.
                       await addItem(groupId, {
                         kind: 'session',
-                        sessionId: s.sessionId,
-                        title: s.title.slice(0, 200),
+                        sessionId: x.sessionId,
+                        title: x.title.slice(0, 200),
                         start: iv.start,
                         end: iv.end,
-                        location: venueLabel(s.venue),
+                        location: venueLabel(x.venue),
                       });
                       await load();
                     })
@@ -370,27 +424,44 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
               </Row>
             );
           })}
+          {pickList.length > 30 ? <P dim style={{ fontSize: 12 }}>Showing 30 of {pickList.length}. Narrow the search to see others.</P> : null}
         </Card>
       ) : null}
 
       {/* ---- free time finder ---- */}
       {freeDay ? (
         <Card>
+          <P style={{ fontWeight: '700', marginBottom: 8 }}>Find a time when everyone is free</P>
           <Row style={{ marginBottom: 10 }}>
             {days.map((d) => (
               <Chip key={d} label={fmtDay(d)} on={freeDay === d} onPress={() => (setFreeDay(d), setFree(null))} />
             ))}
           </Row>
+          <Row style={{ flexWrap: 'nowrap' }}>
+            <View style={{ flex: 1 }}>
+              <Field label="From" value={freeFrom} keyboardType="numbers-and-punctuation" onChangeText={(v) => (setFreeFrom(v), setFree(null))} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Until" value={freeTo} keyboardType="numbers-and-punctuation" onChangeText={(v) => (setFreeTo(v), setFree(null))} />
+            </View>
+          </Row>
+          <P dim style={{ fontSize: 12, marginBottom: 6 }}>For at least:</P>
+          <Row style={{ marginBottom: 10 }}>
+            {[30, 60, 90, 120].map((m) => (
+              <Chip key={m} label={m < 60 ? `${m} min` : `${m / 60} h`} on={freeMin === m} onPress={() => (setFreeMin(m), setFree(null))} />
+            ))}
+          </Row>
           <Btn
             small
-            label="When is everyone free?"
+            label="Find free time"
             busy={busy === 'free'}
             onPress={() =>
               guard('free', async () => {
+                const f = parseClock(freeFrom);
+                const t = parseClock(freeTo);
+                if (f === null || t === null || t <= f) throw new Error('Use times like 08:00 and 22:00, with the end after the start.');
                 await shareBusy(groupId, myBusy()); // keep mine fresh
-                const from = zonedToUtc(freeDay, '08:00', tz);
-                const to = zonedToUtc(freeDay, '22:00', tz);
-                setFree(await freeTime(groupId, from, to, 30));
+                setFree(await freeTime(groupId, zonedToUtc(freeDay, clockString(f), tz), zonedToUtc(freeDay, clockString(t), tz), freeMin));
               })
             }
           />
@@ -399,18 +470,19 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
               <P dim style={{ fontSize: 12, marginBottom: 6 }}>
                 Based on {free.reporting} of {free.members} members who shared busy time.
               </P>
-              {!free.slots.length ? <P dim>No common free time that day.</P> : null}
-              {free.slots.map((s) => (
-                <Row key={s.start} style={{ justifyContent: 'space-between', marginBottom: 6 }}>
-                  <P>{fmtRange(s, tz)}</P>
+              {!free.slots.length ? <P dim>No common free time of that length in that window.</P> : null}
+              {free.slots.map((sl) => (
+                <Row key={sl.start} style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+                  <P>{fmtRange(sl, tz)}</P>
                   <Btn
                     small
                     kind="ghost"
                     label="Plan meetup"
                     onPress={() =>
                       setMeetup({
-                        start: ceil5(s.start),
-                        end: Math.min(floor5(s.end), ceil5(s.start) + 60 * 60000),
+                        day: freeDay,
+                        from: hhmm(ceil5(sl.start), tz),
+                        to: hhmm(Math.min(floor5(sl.end), ceil5(sl.start) + 60 * 60000), tz),
                         title: 'Meetup',
                         location: '',
                       })
@@ -425,29 +497,70 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
 
       {meetup ? (
         <Card>
-          <P style={{ marginBottom: 8 }}>{fmtDay(dayKey(meetup.start, tz))} · {fmtRange(meetup, tz)}</P>
+          <P style={{ fontWeight: '700', marginBottom: 8 }}>Plan a meetup</P>
+          <Row style={{ marginBottom: 10 }}>
+            {days.map((d) => (
+              <Chip key={d} label={fmtDay(d)} on={meetup.day === d} onPress={() => setMeetup({ ...meetup, day: d })} />
+            ))}
+          </Row>
+          <Row style={{ flexWrap: 'nowrap' }}>
+            <View style={{ flex: 1 }}>
+              <Field label="Starts" value={meetup.from} keyboardType="numbers-and-punctuation" onChangeText={(from) => setMeetup({ ...meetup, from })} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Ends" value={meetup.to} keyboardType="numbers-and-punctuation" onChangeText={(to) => setMeetup({ ...meetup, to })} />
+            </View>
+          </Row>
           <Field label="What" value={meetup.title} onChangeText={(title) => setMeetup({ ...meetup, title })} />
           <Field label="Where" value={meetup.location} onChangeText={(location) => setMeetup({ ...meetup, location })} placeholder="Venetian food court" />
-          <Btn
-            label="Add to group calendar"
-            busy={busy === 'meetup'}
-            onPress={() =>
-              guard('meetup', async () => {
-                const item = await addItem(groupId, {
-                  kind: 'meetup',
-                  title: meetup.title.trim() || 'Meetup',
-                  start: meetup.start,
-                  end: meetup.end,
-                  location: meetup.location.trim() || undefined,
-                });
-                setMeetup(null);
-                setFreeDay(null);
-                await load();
-                await joinItem(item);
-              })
-            }
-          />
+          <Row>
+            <Btn
+              label="Add to group calendar"
+              busy={busy === 'meetup'}
+              onPress={() =>
+                guard('meetup', async () => {
+                  const f = parseClock(meetup.from);
+                  const t = parseClock(meetup.to);
+                  if (!meetup.day) throw new Error('Pick a day.');
+                  if (f === null || t === null) throw new Error('Use times like 18:00 and 19:30.');
+                  const start = ceil5(zonedToUtc(meetup.day, clockString(f), tz));
+                  const end = floor5(zonedToUtc(meetup.day, clockString(t), tz));
+                  if (end <= start) throw new Error('The meetup has to end after it starts.');
+                  const item = await addItem(groupId, {
+                    kind: 'meetup',
+                    title: meetup.title.trim() || 'Meetup',
+                    start,
+                    end,
+                    location: meetup.location.trim() || undefined,
+                  });
+                  setMeetup(null);
+                  setFreeDay(null);
+                  await load();
+                  await joinItem(item);
+                })
+              }
+            />
+            <Btn kind="ghost" label="Cancel" onPress={() => setMeetup(null)} />
+          </Row>
         </Card>
+      ) : null}
+
+      {/* ---- calendar view ---- */}
+      {view === 'calendar' ? (
+        <View style={{ marginBottom: 8 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} keyboardShouldPersistTaps="handled">
+            <Row style={{ flexWrap: 'nowrap' }}>
+              {days.map((d) => (
+                <Chip key={d} label={fmtDay(d)} on={calDayShown === d} onPress={() => setCalDay(d)} />
+              ))}
+            </Row>
+          </ScrollView>
+          {calDayShown ? <GroupCalendar day={calDayShown} items={st.items} busy={myBusy()} tz={tz} me={st.me} /> : null}
+          <P dim style={{ fontSize: 12, marginTop: 6 }}>
+            Orange: sessions. Blue: meetups. Grey dashed: you are busy (only you can see that).
+            {!itemsByDay.length ? ' Nothing has been added yet.' : ''}
+          </P>
+        </View>
       ) : null}
 
       {team && myAssigned.length ? (
@@ -466,8 +579,8 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
         />
       ) : null}
 
-      {!itemsByDay.length ? <P dim>Nothing on the group calendar yet.</P> : null}
-      {itemsByDay.map(([day, items]) => (
+      {view === 'list' && !itemsByDay.length ? <P dim>Nothing on the group calendar yet.</P> : null}
+      {view === 'list' && itemsByDay.map(([day, items]) => (
         <View key={day}>
           <H>{fmtDay(day)}</H>
           {items.map((i) => {

@@ -111,8 +111,13 @@ export async function reserveAll(eventId: string, sessions: Session[], onProgres
 
 export const isOurs = (description: string) => description.includes(PT_TAG);
 
+const MIN = 60_000;
+
+/** Same block? Allows 5 minutes of difference at each end, because a block may have been saved a little shorter. */
 const same = (a: { startDateTime: string; endDateTime: string; title: string }, b: PersonalTimeInput) =>
-  a.startDateTime === b.startDateTime && a.endDateTime === b.endDateTime && a.title === b.title;
+  a.title === b.title &&
+  Math.abs(fromApiUtc(a.startDateTime) - fromApiUtc(b.startDateTime)) <= 5 * MIN &&
+  Math.abs(fromApiUtc(a.endDateTime) - fromApiUtc(b.endDateTime)) <= 5 * MIN;
 
 export interface PersonalTimeFailure {
   entry: PersonalTimeInput;
@@ -123,8 +128,8 @@ export interface PersonalTimeFailure {
 export interface PersonalTimeOutcome {
   schedule: Schedule;
   failed: PersonalTimeFailure[];
-  /** Entries that only went through after dropping the optional location and long description. */
-  trimmed: number;
+  /** Entries the API only accepted in a reduced form, and what had to change. */
+  adjusted: { title: string; how: string }[];
 }
 
 /** Same block, with only what the API requires: no location, and a short description that keeps our tags. */
@@ -136,14 +141,37 @@ const minimal = (w: PersonalTimeInput): PersonalTimeInput => ({
 });
 
 /**
+ * Versions of a block to try if the API refuses it as sent, mildest change first. Both failures we have
+ * seen involve a block that touches another entry exactly (a walk that ends the minute a session starts,
+ * a meetup that starts the minute a session ends), so shaving 5 minutes off the ends is one of the tries.
+ */
+function fallbacks(w: PersonalTimeInput): { entry: PersonalTimeInput; how: string }[] {
+  const base = minimal(w);
+  const s = fromApiUtc(w.startDateTime);
+  const e = fromApiUtc(w.endDateTime);
+  const out = [{ entry: base, how: 'without the location and details' }];
+  if (e - s >= 10 * MIN) {
+    out.push({ entry: { ...base, endDateTime: toApiUtc(e - 5 * MIN) }, how: '5 minutes shorter at the end, without details' });
+  }
+  if (e - s >= 20 * MIN) {
+    out.push({
+      entry: { ...base, startDateTime: toApiUtc(s + 5 * MIN), endDateTime: toApiUtc(e - 5 * MIN) },
+      how: '5 minutes shorter at both ends, without details',
+    });
+  }
+  return out;
+}
+
+/**
  * Creates personal-time entries that are not already there. Create returns no body,
  * so we read GetSchedule afterwards. After an unknown outcome we re-read before trying again.
- * One refused entry does not stop the others: it is reported in `failed` with the API's own message.
+ * One refused entry does not stop the others: if the API refuses it as sent we try the milder versions
+ * above, and if none works it is reported in `failed` with the API's own message.
  */
 export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeInput[]): Promise<PersonalTimeOutcome> {
   let schedule = await getSchedule(eventId);
   const failed: PersonalTimeFailure[] = [];
-  let trimmed = 0;
+  const adjusted: PersonalTimeOutcome['adjusted'] = [];
 
   const create = async (w: PersonalTimeInput) => {
     try {
@@ -157,42 +185,55 @@ export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeIn
 
   for (const w of wanted) {
     if (schedule.personalTime.some((p) => same(p, w))) continue;
-    try {
-      await create(w);
-    } catch (e) {
-      if (!(e instanceof ApiError) || e.status !== 400) throw e;
-      // Refused as sent. Try once with only the required fields, so we can tell a bad optional field
-      // from a real conflict (e.g. it overlaps something already on the schedule).
+    const tries = [{ entry: w, how: '' }, ...fallbacks(w)];
+    let lastRefusal: ApiError | null = null;
+    let placed = false;
+    for (const [i, t] of tries.entries()) {
       try {
-        await create(minimal(w));
-        trimmed++;
-      } catch (e2) {
-        if (!(e2 instanceof ApiError) || e2.status !== 400) throw e2;
-        failed.push({ entry: w, status: e2.status, message: e2.message });
+        await create(t.entry);
+        if (i > 0) adjusted.push({ title: w.title, how: t.how });
+        placed = true;
+        break;
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 400) throw e;
+        lastRefusal = e;
       }
     }
+    if (!placed && lastRefusal) failed.push({ entry: w, status: lastRefusal.status, message: lastRefusal.message });
   }
   schedule = await getSchedule(eventId);
-  return { schedule, failed, trimmed };
+  return { schedule, failed, adjusted };
 }
 
 /** Plain-language summary of a personal-time write, for a banner. */
-export function describePersonalTime(o: PersonalTimeOutcome, total: number, tz: string): { ok: boolean; text: string } {
+export function describePersonalTime(
+  o: PersonalTimeOutcome,
+  total: number,
+  tz: string,
+  noun = 'walking block'
+): { ok: boolean; text: string } {
   const lines: string[] = [];
   const added = total - o.failed.length;
+  const plural = (n: number) => `${noun}${n === 1 ? '' : 's'}`;
   lines.push(
     o.failed.length
-      ? `${added} of ${total} walking blocks are on your calendar. ${o.failed.length} refused by the AWS Events API:`
-      : `✓ ${total} walking block${total === 1 ? '' : 's'} on your calendar.`
+      ? `${added} of ${total} ${plural(total)} on your calendar. ${o.failed.length} refused by the AWS Events API after trying ${tryCount(o)} versions:`
+      : `\u2713 ${total} ${plural(total)} on your calendar.`
   );
   for (const f of o.failed) {
     const start = fromApiUtc(f.entry.startDateTime);
     const end = fromApiUtc(f.entry.endDateTime);
-    lines.push(`✗ "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}: ${f.message || `error ${f.status}`}`);
+    lines.push(`\u2717 "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}: ${f.message || `error ${f.status}`}`);
   }
-  if (o.trimmed) lines.push(`(${o.trimmed} only worked without the location and details, so those were left off.)`);
+  for (const a of o.adjusted) lines.push(`(\u201C${a.title}\u201D was only accepted ${a.how}.)`);
   return { ok: o.failed.length === 0, text: lines.join('\n') };
 }
+
+/** How many versions of a block are tried before giving up (as sent, plus the milder ones). */
+const tryCount = (o: PersonalTimeOutcome) => {
+  const f = o.failed[0];
+  return f ? 1 + fallbacks(f.entry).length : 1;
+};
 
 export function travelToInput(t: TravelBlock): PersonalTimeInput {
   return {

@@ -146,3 +146,35 @@ export const hhmmToMinutes = (s: string) => {
   const [h, m] = s.split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
 };
+
+/** "09:30" for an instant, in `tz` (24-hour, the form the time fields use). */
+export function hhmm(ms: number, tz: string): string {
+  const m = localMinutes(ms, tz);
+  return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+}
+
+/** Minutes since midnight -> "09:30". */
+export const clockString = (minutes: number) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+
+/**
+ * Reads what a person types into a time field: "9", "9:30", "09:30", "930", "18.15".
+ * Returns minutes since midnight, or null if it is not a time.
+ */
+export function parseClock(text: string): number | null {
+  const t = text.trim().replace('.', ':');
+  let h: number, m: number;
+  const colon = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (colon) {
+    h = Number(colon[1]);
+    m = Number(colon[2]);
+  } else if (/^\d{1,2}$/.test(t)) {
+    h = Number(t);
+    m = 0;
+  } else if (/^\d{3,4}$/.test(t)) {
+    h = Number(t.slice(0, t.length - 2));
+    m = Number(t.slice(-2));
+  } else {
+    return null;
+  }
+  return h <= 24 && m < 60 && !(h === 24 && m > 0) ? h * 60 + m : null;
+}
