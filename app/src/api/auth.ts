@@ -2,10 +2,12 @@
 // Tokens never leave the phone. The access token lives in memory only,
 // the refresh token in the iOS Keychain / Android Keystore (expo-secure-store).
 import * as Crypto from 'expo-crypto';
+import { AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import { AUTH } from '../config';
-import { startLoopback } from './loopback';
+import { waitForRedirectAndroid } from './browserWait';
+import { LoopbackHit, LoopbackServer, startLoopback } from './loopback';
 
 const REFRESH_KEY = 'hallway.refresh_token';
 const EMAIL_KEY = 'hallway.email';
@@ -48,6 +50,26 @@ interface TokenResponse {
   id_token?: string;
   expires_in?: number;
   error?: string;
+}
+
+/**
+ * Opens the browser and resolves with the redirect our local listener receives, or null if the user
+ * closed the browser first. The two platforms report "closed" very differently, see browserWait.ts.
+ */
+async function browseUntil(url: string, server: LoopbackServer): Promise<LoopbackHit | null> {
+  if (Platform.OS === 'android') {
+    return waitForRedirectAndroid({
+      open: () => WebBrowser.openBrowserAsync(url),
+      waitFor: server.waitFor,
+      appState: AppState,
+    });
+  }
+  // iOS: openBrowserAsync finishes when the sign-in sheet is dismissed, so finishing first means "closed".
+  const closed = WebBrowser.openBrowserAsync(url).then(() => null);
+  const hit = await Promise.race([server.waitFor, closed]);
+  // dismissBrowser exists on iOS only; on Android it returns nothing, so don't chain on it directly.
+  Promise.resolve(WebBrowser.dismissBrowser()).catch(() => {});
+  return hit;
 }
 
 class AuthManager {
@@ -100,15 +122,7 @@ class AuthManager {
         `&code_challenge_method=S256` +
         `&state=${state}`;
 
-      let done = false;
-      const closed = WebBrowser.openBrowserAsync(url).then(() => {
-        if (!done) throw new Error('Sign-in was closed before it finished');
-      });
-      closed.catch(() => {});
-
-      const hit = await Promise.race([server.waitFor, closed.then(() => null)]);
-      done = true;
-      WebBrowser.dismissBrowser().catch(() => {});
+      const hit = await browseUntil(url, server);
       if (!hit) throw new Error('Sign-in was closed before it finished');
 
       const { code, error, state: gotState } = hit.params;
@@ -193,9 +207,7 @@ class AuthManager {
         `${AUTH.logoutUrl}?client_id=${AUTH.clientId}` +
         `&logout_uri=${encodeURIComponent(`http://${AUTH.host}:${server.port}/logout`)}`;
       const url = `${AUTH.builderIdLogoutUrl}?redirect_uri=${encodeURIComponent(inner)}`;
-      const closed = WebBrowser.openBrowserAsync(url).then(() => null);
-      await Promise.race([server.waitFor, closed]);
-      WebBrowser.dismissBrowser().catch(() => {});
+      await browseUntil(url, server);
     } finally {
       server.close();
     }

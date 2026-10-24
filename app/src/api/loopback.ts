@@ -28,10 +28,16 @@ export function parseQuery(qs: string | undefined): Record<string, string> {
   return out;
 }
 
+// On Android the sign-in page stays open in Chrome after the redirect, so the page offers a way back.
+// The button always works; the automatic jump back is skipped on iPhone, where it would ask permission.
 const PAGE = (msg: string) =>
   '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
-  '<body style="font-family:-apple-system,system-ui;padding:32px;color:#111">' +
-  `<h2>${msg}</h2><p>You can go back to Hallway.</p></body></html>`;
+  '<body style="font-family:-apple-system,system-ui,sans-serif;padding:32px;color:#111">' +
+  `<h2>${msg}</h2><p>You can go back to Hallway.</p>` +
+  '<p><a href="hallway://signed-in" style="display:inline-block;background:#FF9F1C;color:#1A1204;' +
+  'font-weight:700;text-decoration:none;padding:14px 22px;border-radius:12px">Open Hallway</a></p>' +
+  "<script>if(/Android/i.test(navigator.userAgent)){setTimeout(function(){location.href='hallway://signed-in'},400)}</script>" +
+  '</body></html>';
 
 function listenOn(port: number, expectPath: string): Promise<LoopbackServer> {
   return new Promise((resolveListening, rejectListening) => {
