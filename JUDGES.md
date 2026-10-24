@@ -66,6 +66,13 @@ Members only share their busy times, never what the busy times are.
 - **The AWS Events API can say no.** It can close an operation (`409`), refuse when you are over a quota (`429`, Hallway waits and retries), or report a session as full. Hallway shows these messages instead of hiding them, and checks `GetSchedule` after every change.
 - **Walking times and certification mappings are our own estimates.** The API has venue names but no coordinates, and no certification field.
 
+## If something goes wrong
+
+- **Sign-in says "could not reach oauth.awsevents.com" or "Unable to resolve host" (Android).** This is a phone network setting, not a bug in your account. Turn off **battery saver** (or set Hallway to "unrestricted" in the phone's battery settings), then try again. If it persists, switch between Wi-Fi and mobile data, or set **Private DNS** to `dns.google` in Settings > Connections > More connection settings.
+- **Chrome shows "127.0.0.1 refused to connect" after you sign in.** You have an older build. Install the latest `hallway.apk` from the release.
+- **"Not registered for re:Invent 2026".** Your Builder ID is not registered for the event, so the AWS Events API refuses it. Use the demo video instead.
+- **"The app key is missing or out of date" (building yourself).** Copy the two lines from [the section above](#backend-address-and-key-for-building-it-yourself) into `app/.env` and restart the dev server with `npx expo start --dev-client --clear`.
+
 ## Privacy and design
 
 Your AWS login never leaves your phone, and the backend cannot tell who is calling it. That is deliberate, and it is why the backend is protected with limits rather than logins. [DECISIONS.md](DECISIONS.md) explains the trade-offs, including why we did not verify the token on the server.

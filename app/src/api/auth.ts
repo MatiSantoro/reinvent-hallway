@@ -7,6 +7,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import { AUTH } from '../config';
 import { waitForRedirectAndroid } from './browserWait';
+import { explainNetworkError, fetchRetry, isNetworkError, whenForeground } from './netRetry';
 import { LoopbackHit, LoopbackServer, startLoopback } from './loopback';
 
 const REFRESH_KEY = 'hallway.refresh_token';
@@ -130,17 +131,25 @@ class AuthManager {
       if (gotState !== state) throw new Error('Sign-in state mismatch');
       if (!code) throw new Error('No code in the sign-in callback');
 
-      const res = await fetch(AUTH.tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form({
-          grant_type: 'authorization_code',
-          client_id: AUTH.clientId,
-          redirect_uri: redirectUri, // identical string to the authorize request
-          code,
-          code_verifier: verifier,
-        }),
-      });
+      // Android cuts the network for background apps (battery saver), and right now the sign-in tab is
+      // still in front. Wait until Hallway is back on screen before talking to the token server.
+      await whenForeground(AppState);
+      let res: Response;
+      try {
+        res = await fetchRetry(fetch, AUTH.tokenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: form({
+            grant_type: 'authorization_code',
+            client_id: AUTH.clientId,
+            redirect_uri: redirectUri, // identical string to the authorize request
+            code,
+            code_verifier: verifier,
+          }),
+        });
+      } catch (e) {
+        throw isNetworkError(e) ? new Error(explainNetworkError('oauth.awsevents.com')) : e;
+      }
       const tokens = (await res.json()) as TokenResponse;
       if (!res.ok || !tokens.access_token) {
         throw new Error(`Token exchange failed (${res.status}): ${tokens.error || 'unknown'}`);
@@ -158,7 +167,7 @@ class AuthManager {
       try {
         const rt = await SecureStore.getItemAsync(REFRESH_KEY);
         if (!rt) throw new SignInRequired();
-        const res = await fetch(AUTH.tokenUrl, {
+        const res = await fetchRetry(fetch, AUTH.tokenUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: form({ grant_type: 'refresh_token', client_id: AUTH.clientId, refresh_token: rt }),
