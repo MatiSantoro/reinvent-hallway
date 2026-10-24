@@ -26,7 +26,15 @@ Because of decision 1, the API is protected by limits instead of by identity:
 
 **Why this is enough for now:** the worst case is a few dollars a day, and nothing here holds a credential or personal data beyond a display name and busy time ranges.
 
-## 3. Option we did not take: verify the Builder ID token on the backend
+## 3. A group owner without knowing who anyone is
+
+Groups have an owner, but the backend still cannot tell who a person is. The owner is simply the member who created the group, and the app proves it with the same random secret every member gets when they create or join. The owner can remove a member, remove any item, and delete the group. If the owner leaves, the longest-standing member takes over, and when the last member leaves the group and its invite code are deleted.
+
+**What this does not do:**
+- A member who loses their phone (or reinstalls) loses their secret, and with it their membership. If they were the owner, the next member inherits it only after they leave or are removed. The owner can remove the lost member from the list.
+- Nobody can prove they are the same person on a second device. Joining twice creates two members. The app stops you doing it twice from one phone, and names must be unique inside a group, but that is a convenience, not security.
+
+## 4. Option we did not take: verify the Builder ID token on the backend
 
 The backend would receive the token, check it with AWS Events, and either allow the request or issue its own short-lived session token.
 
@@ -38,6 +46,6 @@ The backend would receive the token, check it with AWS Events, and either allow 
 
 **What it would take, for a public launch:** verify the token once, never store or log it, and return a short-lived signed session. That limits exposure to a single request, but the token still reaches the server, so the privacy line in the README would have to be rewritten.
 
-## 4. Builder ID must be registered for re:Invent 2026
+## 5. Builder ID must be registered for re:Invent 2026
 
 The catalog returns `403` for a Builder ID that is not registered for the event, and the app stays on the sign-in screen with a "not registered" message. There is no demo mode.

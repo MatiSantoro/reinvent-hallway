@@ -52,9 +52,12 @@ You do not need to be in the same room or on the same Wi-Fi. A group lives on th
 
 1. Judge A opens **Groups**, creates a group (*Squad: go together* or *Team: split and cover more*), and shares the **invite code** (8 characters, unique to that group) or the invite link.
 2. Judge B opens **Groups**, enters the code, and joins. Up to 50 people can join one group.
-3. Both can now propose sessions, tap **I'm in** to reserve their own seat, use **Find free time**, and in a Team group use **Split sessions** so the team covers more ground.
+3. Names are unique inside a group, so if two of you pick the same name, the second one is asked to choose another. Joining a group you are already in just tells you so.
+4. Both can now propose sessions, tap **I'm in** to reserve their own seat, use **Find free time**, and in a Team group use **Split sessions** so the team covers more ground.
 
 Members only share their busy times, never what the busy times are.
+
+**Owner.** Whoever creates a group is its owner. The owner can remove a member (for example someone who lost their phone), remove anyone's proposed item, and delete the group for everyone. If the owner leaves, the member who has been in the group longest becomes the owner. When the last member leaves, the group and its invite code are deleted.
 
 ## What to expect
 

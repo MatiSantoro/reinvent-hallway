@@ -40,6 +40,8 @@ export interface GroupState {
   members: Member[];
   items: GroupItem[];
   me: string;
+  /** The member who runs the group: its creator, or the longest-standing member if the creator left. */
+  ownerId: string;
 }
 
 export interface Slot {
@@ -58,6 +60,8 @@ interface Membership {
   groupId: string;
   name: string;
   memberId: string;
+  /** Lets us notice "you are already in this group" before joining a second time. */
+  inviteCode?: string;
 }
 
 const listFile = () => new File(Paths.document, 'groups.json');
@@ -94,6 +98,12 @@ export class BackendNotConfigured extends Error {
   }
 }
 
+export class BackendError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
 async function req<T>(path: string, init: { method?: string; body?: unknown; groupId?: string } = {}): Promise<T> {
   if (!BACKEND_URL) throw new BackendNotConfigured();
   const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Api-Key': API_KEY };
@@ -111,7 +121,15 @@ async function req<T>(path: string, init: { method?: string; body?: unknown; gro
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
-  if (!res.ok) throw new Error(data.message || `Backend error ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401 && String(data.message || '').includes('app key')) {
+      throw new BackendError(
+        401,
+        'The app key in this build is missing or out of date. Update EXPO_PUBLIC_API_KEY in app/.env, restart the dev server with --clear, and try again.'
+      );
+    }
+    throw new BackendError(res.status, data.message || `Backend error ${res.status}`);
+  }
   return data as T;
 }
 
@@ -142,16 +160,26 @@ export async function createGroup(name: string, mode: GroupMode, displayName: st
     method: 'POST',
     body: { name, mode, displayName, eventId },
   });
-  await remember({ groupId: r.group.groupId, name: r.group.name, memberId: r.memberId }, r.secret);
+  await remember(
+    { groupId: r.group.groupId, name: r.group.name, memberId: r.memberId, inviteCode: r.group.inviteCode },
+    r.secret
+  );
   return r.group;
 }
 
 export async function joinGroup(inviteCode: string, displayName: string) {
+  const code = inviteCode.trim().toUpperCase();
+  // Joining again would add a second member for the same person and orphan the first.
+  const already = (await myGroups()).find((g) => g.inviteCode === code);
+  if (already) throw new Error(`You are already in "${already.name}". Open it from your groups list.`);
   const r = await req<{ group: Group; memberId: string; secret: string }>('/groups/join', {
     method: 'POST',
-    body: { inviteCode: inviteCode.trim().toUpperCase(), displayName },
+    body: { inviteCode: code, displayName },
   });
-  await remember({ groupId: r.group.groupId, name: r.group.name, memberId: r.memberId }, r.secret);
+  await remember(
+    { groupId: r.group.groupId, name: r.group.name, memberId: r.memberId, inviteCode: r.group.inviteCode },
+    r.secret
+  );
   return r.group;
 }
 
@@ -163,7 +191,34 @@ export async function leaveGroup(groupId: string) {
   }
 }
 
-export const getGroup = (groupId: string) => req<GroupState>(`/groups/${groupId}`, { groupId });
+export async function getGroup(groupId: string) {
+  try {
+    const st = await req<GroupState>(`/groups/${groupId}`, { groupId });
+    // Older memberships were saved without the invite code, fill it in so "already in this group" works.
+    const known = (await myGroups()).find((g) => g.groupId === groupId);
+    if (known && known.inviteCode !== st.group.inviteCode) {
+      const secret = await SecureStore.getItemAsync(secretKey(groupId));
+      if (secret) await remember({ ...known, inviteCode: st.group.inviteCode }, secret);
+    }
+    return st;
+  } catch (e) {
+    if (e instanceof BackendError && e.status === 403) {
+      await forget(groupId); // removed by the owner, or the group no longer exists
+      throw new Error('You are no longer in this group. The owner removed you, or the group was deleted.');
+    }
+    throw e;
+  }
+}
+
+/** Owner only: removes a member, for example someone who lost their phone. */
+export const removeMember = (groupId: string, memberId: string) =>
+  req(`/groups/${groupId}/members/${memberId}`, { method: 'DELETE', groupId });
+
+/** Owner only: deletes the group for everyone. */
+export async function deleteGroup(groupId: string) {
+  await req(`/groups/${groupId}`, { method: 'DELETE', groupId });
+  await forget(groupId);
+}
 
 export const addItem = (groupId: string, item: Omit<GroupItem, 'itemId' | 'createdBy' | 'going' | 'assignee'>) =>
   req<GroupItem>(`/groups/${groupId}/items`, { method: 'POST', body: item, groupId });

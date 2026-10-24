@@ -179,3 +179,143 @@ def test_limit_of_zero_turns_planning_off(api, fake_bedrock, monkeypatch):
     monkeypatch.setenv("PLAN_DAILY_LIMIT", "0")
     assert api("POST", "/plan", PLAN_BODY)[0] == 429
     assert fake_bedrock.calls == 0
+
+
+# ---------- group owner, leaving, and names ----------
+
+
+def _new_group(api, name="Crew", mode="squad", owner="Ana"):
+    s, a = api("POST", "/groups", {"name": name, "mode": mode, "displayName": owner})
+    assert s == 200
+    return a
+
+
+def _join(api, code, name):
+    s, b = api("POST", "/groups/join", {"inviteCode": code, "displayName": name})
+    return s, b
+
+
+def _who(m):
+    return {"memberId": m["memberId"], "secret": m["secret"]}
+
+
+def _view(api, gid, m):
+    s, st = api("GET", f"/groups/{gid}", member=_who(m))
+    assert s == 200, st
+    return st
+
+
+def test_creator_is_the_owner(api):
+    a = _new_group(api)
+    gid = a["group"]["groupId"]
+    assert _view(api, gid, a)["ownerId"] == a["memberId"]
+
+
+def test_last_member_leaving_deletes_the_group(api):
+    import groups
+
+    a = _new_group(api)
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    api("POST", f"/groups/{gid}/items", {"kind": "meetup", "title": "Dinner", "start": 10 * M, "end": 20 * M}, member=_who(a))
+    assert api("DELETE", f"/groups/{gid}/members/me", member=_who(a))[0] == 200
+    assert _join(api, code, "Late")[0] == 404  # the invite code is gone too
+    left = [i["pk"] for i in groups.table().scan()["Items"] if i["pk"] == f"GROUP#{gid}" or i["pk"] == f"INVITE#{code}"]
+    assert left == []
+
+
+def test_leaving_keeps_the_group_while_others_remain_and_clears_your_marks(api):
+    a = _new_group(api)
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    s, b = _join(api, code, "Ben")
+    assert s == 200
+    s, item = api("POST", f"/groups/{gid}/items", {"kind": "meetup", "title": "Dinner", "start": 10 * M, "end": 20 * M}, member=_who(a))
+    api("PUT", f"/groups/{gid}/items/{item['itemId']}/rsvp", {"going": True}, member=_who(b))
+    assert set(_view(api, gid, a)["items"][0]["going"]) == {a["memberId"], b["memberId"]}
+
+    assert api("DELETE", f"/groups/{gid}/members/me", member=_who(b))[0] == 200
+    st = _view(api, gid, a)
+    assert [m["displayName"] for m in st["members"]] == ["Ana"]
+    assert st["items"][0]["going"] == [a["memberId"]]  # no ghost attendance
+
+
+def test_leaving_clears_a_team_assignment(api):
+    import groups
+
+    a = _new_group(api, mode="team")
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    s, b = _join(api, code, "Ben")
+    s, item = api("POST", f"/groups/{gid}/items", {"kind": "meetup", "title": "Dinner", "start": 10 * M, "end": 20 * M}, member=_who(a))
+    key = {"pk": f"GROUP#{gid}", "sk": f"ITEM#{item['itemId']}"}
+    groups.table().update_item(Key=key, UpdateExpression="SET assignee = :a", ExpressionAttributeValues={":a": b["memberId"]})
+    api("DELETE", f"/groups/{gid}/members/me", member=_who(b))
+    assert "assignee" not in _view(api, gid, a)["items"][0]
+
+
+def test_ownership_passes_to_the_longest_standing_member(api):
+    import time
+
+    a = _new_group(api)
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    time.sleep(0.01)
+    s, b = _join(api, code, "Ben")
+    time.sleep(0.01)
+    s, c = _join(api, code, "Cleo")
+    assert api("DELETE", f"/groups/{gid}/members/me", member=_who(a))[0] == 200
+    assert _view(api, gid, c)["ownerId"] == b["memberId"]  # Ben joined before Cleo
+
+
+def test_a_group_from_before_owners_existed_still_has_one(api):
+    import time
+
+    import groups
+
+    a = _new_group(api)
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    time.sleep(0.01)
+    s, b = _join(api, code, "Ben")
+    groups.table().update_item(Key={"pk": f"GROUP#{gid}", "sk": "META"}, UpdateExpression="REMOVE ownerId")
+    assert _view(api, gid, b)["ownerId"] == a["memberId"]  # earliest member
+
+
+def test_only_the_owner_can_remove_a_member(api):
+    a = _new_group(api)
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    s, b = _join(api, code, "Ben")
+    s, c = _join(api, code, "Cleo")
+    assert api("DELETE", f"/groups/{gid}/members/{c['memberId']}", member=_who(b))[0] == 403
+    assert api("DELETE", f"/groups/{gid}/members/{a['memberId']}", member=_who(a))[0] == 400  # not yourself
+    assert api("DELETE", f"/groups/{gid}/members/{c['memberId']}", member=_who(a))[0] == 200
+    assert api("GET", f"/groups/{gid}", member=_who(c))[0] == 403  # Cleo's phone is locked out now
+    assert api("DELETE", f"/groups/{gid}/members/nobody123", member=_who(a))[0] == 404
+
+
+def test_only_the_owner_can_delete_the_group(api):
+    a = _new_group(api)
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    s, b = _join(api, code, "Ben")
+    assert api("DELETE", f"/groups/{gid}", member=_who(b))[0] == 403
+    assert api("DELETE", f"/groups/{gid}", member=_who(a))[0] == 200
+    assert _join(api, code, "Cleo")[0] == 404
+    assert api("GET", f"/groups/{gid}", member=_who(b))[0] == 403
+
+
+def test_the_owner_can_remove_anyones_item_but_others_cannot(api):
+    a = _new_group(api)
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    s, b = _join(api, code, "Ben")
+    s, c = _join(api, code, "Cleo")
+    s, item = api("POST", f"/groups/{gid}/items", {"kind": "meetup", "title": "Dinner", "start": 10 * M, "end": 20 * M}, member=_who(b))
+    assert api("DELETE", f"/groups/{gid}/items/{item['itemId']}", member=_who(c))[0] == 403
+    assert api("DELETE", f"/groups/{gid}/items/{item['itemId']}", member=_who(a))[0] == 200  # a is the owner
+    assert _view(api, gid, a)["items"] == []
+
+
+def test_names_must_be_unique_inside_a_group(api):
+    a = _new_group(api, owner="Ana")
+    gid, code = a["group"]["groupId"], a["group"]["inviteCode"]
+    s, body = _join(api, code, "  ANA ")
+    assert s == 409 and "already uses that name" in body["message"]
+    s, b = _join(api, code, "Ben")
+    assert s == 200
+    api("DELETE", f"/groups/{gid}/members/me", member=_who(b))
+    assert _join(api, code, "Ben")[0] == 200  # a name frees up when its member leaves

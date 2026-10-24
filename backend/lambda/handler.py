@@ -30,6 +30,8 @@ ROUTES: list[tuple[str, re.Pattern, bool, Callable[..., Any]]] = [
     ("GET", re.compile(rf"^/groups/{G}/free$"), True, lambda m, me, b, q: groups.get_free(m["g"], q)),
     ("POST", re.compile(rf"^/groups/{G}/split$"), True, lambda m, me, b, q: groups.split(m["g"])),
     ("DELETE", re.compile(rf"^/groups/{G}/members/me$"), True, lambda m, me, b, q: groups.leave(m["g"], me)),
+    ("DELETE", re.compile(rf"^/groups/{G}/members/{I}$"), True, lambda m, me, b, q: groups.remove_member(m["g"], me, m["i"])),
+    ("DELETE", re.compile(rf"^/groups/{G}$"), True, lambda m, me, b, q: groups.delete_group(m["g"], me)),
 ]
 
 

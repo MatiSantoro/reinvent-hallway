@@ -4,6 +4,7 @@ import { Alert, ScrollView, Share, Text, View } from 'react-native';
 import {
   addItem,
   createGroup,
+  deleteGroup,
   freeTime,
   getGroup,
   GroupItem,
@@ -13,6 +14,7 @@ import {
   leaveGroup,
   myGroups,
   removeItem,
+  removeMember,
   rsvp,
   shareBusy,
   Slot,
@@ -193,6 +195,7 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
 
   const nameOf = (id: string) => st.members.find((m) => m.memberId === id)?.displayName || 'someone';
   const team = st.group.mode === 'team';
+  const isOwner = st.ownerId === st.me;
   const myAssigned = st.items.filter((i) => i.kind === 'session' && i.assignee === st.me);
   const proposed = new Set(st.items.map((i) => i.sessionId).filter(Boolean));
   const mine = [...new Set([...schedule.reserved, ...schedule.favorites])]
@@ -242,7 +245,6 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
       <P dim style={{ marginTop: 4 }}>
         {team ? 'Team: split sessions, cover more' : 'Squad: attend together'} · {st.members.length} members
       </P>
-      <P dim style={{ marginTop: 4 }}>{st.members.map((m) => m.displayName + (m.busyUpdatedAt ? ' ✓' : '')).join(', ')}</P>
 
       <Row style={{ marginTop: 12 }}>
         <Btn
@@ -271,6 +273,43 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
       </Row>
 
       {msg ? <View style={{ marginTop: 12 }}><Banner kind={msg.kind} text={msg.text} /></View> : null}
+
+      {/* ---- members ---- */}
+      <H>Members ({st.members.length})</H>
+      {st.members.map((m) => (
+        <Card key={m.memberId} style={{ paddingVertical: 10 }}>
+          <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: C.text, fontWeight: '700' }}>
+                {m.displayName}
+                {m.memberId === st.me ? ' (you)' : ''}
+              </Text>
+              <Text style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>
+                {[m.memberId === st.ownerId ? 'Owner' : null, m.busyUpdatedAt ? 'shared busy time' : 'no busy time shared']
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            </View>
+            {isOwner && m.memberId !== st.me ? (
+              <Btn
+                small
+                kind="danger"
+                label="Remove"
+                onPress={() =>
+                  Alert.alert(`Remove ${m.displayName}?`, 'They lose access to this group. Their seats on re:Invent are not touched.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove',
+                      style: 'destructive',
+                      onPress: () => guard('rmm' + m.memberId, async () => void (await removeMember(groupId, m.memberId), await load())),
+                    },
+                  ])
+                }
+              />
+            ) : null}
+          </Row>
+        </Card>
+      ))}
 
       {/* ---- propose a session ---- */}
       <H>Shared calendar</H>
@@ -461,7 +500,7 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
                       onPress={() => guard(i.itemId, async () => void (await rsvp(groupId, i.itemId, false), await load()))}
                     />
                   )}
-                  {i.createdBy === st.me ? (
+                  {i.createdBy === st.me || isOwner ? (
                     <Btn
                       small
                       kind="danger"
@@ -481,12 +520,33 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
         label="Leave group"
         style={{ marginTop: 24 }}
         onPress={() =>
-          Alert.alert('Leave group?', 'Your seats and blocks on re:Invent stay as they are.', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Leave', style: 'destructive', onPress: () => leaveGroup(groupId).finally(onBack) },
-          ])
+          Alert.alert(
+            'Leave group?',
+            st.members.length === 1
+              ? 'You are the last member, so leaving deletes the group and its calendar. Your seats and blocks on re:Invent stay as they are.'
+              : isOwner
+                ? 'The group carries on. The member who has been in it longest becomes the owner. Your seats and blocks on re:Invent stay as they are.'
+                : 'Your seats and blocks on re:Invent stay as they are.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Leave', style: 'destructive', onPress: () => leaveGroup(groupId).finally(onBack) },
+            ]
+          )
         }
       />
+      {isOwner && st.members.length > 1 ? (
+        <Btn
+          kind="danger"
+          label="Delete group for everyone"
+          style={{ marginTop: 10 }}
+          onPress={() =>
+            Alert.alert('Delete group for everyone?', 'The calendar and the invite code are removed for all members. This cannot be undone.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => deleteGroup(groupId).finally(onBack) },
+            ])
+          }
+        />
+      ) : null}
     </ScrollView>
   );
 }

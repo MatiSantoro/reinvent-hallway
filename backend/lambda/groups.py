@@ -1,7 +1,7 @@
 """Groups and the shared calendar, stored in one DynamoDB table.
 
 Keys:
-  pk=GROUP#<id>  sk=META              name, mode, inviteCode, eventId
+  pk=GROUP#<id>  sk=META              name, mode, inviteCode, eventId, ownerId
   pk=GROUP#<id>  sk=MEMBER#<id>       displayName, secretHash, busy, busyUpdatedAt
   pk=GROUP#<id>  sk=ITEM#<id>         kind, sessionId, title, start, end, location, createdBy, going, assignee
   pk=INVITE#<code> sk=INVITE          groupId
@@ -154,6 +154,59 @@ def _new_member(group_id: str, display_name: str) -> tuple[str, str]:
     return member_id, secret
 
 
+def _meta(rows: list[dict]) -> dict:
+    meta = next((r for r in rows if r["sk"] == "META"), None)
+    if not meta:
+        raise HttpError(404, "Group not found")
+    return meta
+
+
+def _member_ids(rows: list[dict]) -> set[str]:
+    return {r["sk"].split("#", 1)[1] for r in rows if r["sk"].startswith("MEMBER#")}
+
+
+def _owner_id(meta: dict, rows: list[dict]) -> str:
+    """The owner on record, or if they are gone (or the group predates owners), the longest-standing member."""
+    if meta.get("ownerId") in _member_ids(rows):
+        return meta["ownerId"]
+    members = [r for r in rows if r["sk"].startswith("MEMBER#")]
+    first = min(members, key=lambda r: _num(r.get("joinedAt", 0)), default=None)
+    return first["sk"].split("#", 1)[1] if first else ""
+
+
+def _require_owner(group_id: str, me: str) -> tuple[list[dict], dict]:
+    rows = _query(group_id)
+    meta = _meta(rows)
+    if _owner_id(meta, rows) != me:
+        raise HttpError(403, "Only the group owner can do that")
+    return rows, meta
+
+
+def _scrub_member(rows: list[dict], member_id: str) -> None:
+    """Takes a departed member out of every session's "I'm in" list and team assignment."""
+    for r in rows:
+        if not r["sk"].startswith("ITEM#"):
+            continue
+        key = {"pk": r["pk"], "sk": r["sk"]}
+        going = list(r.get("going") or [])
+        if member_id in going:
+            table().update_item(
+                Key=key,
+                UpdateExpression="SET going = :g",
+                ExpressionAttributeValues={":g": [m for m in going if m != member_id]},
+            )
+        if r.get("assignee") == member_id:
+            table().update_item(Key=key, UpdateExpression="REMOVE assignee")
+
+
+def _delete_group(rows: list[dict], meta: dict) -> None:
+    """Removes every row of the group and its invite code."""
+    with table().batch_writer() as batch:
+        for r in rows:
+            batch.delete_item(Key={"pk": r["pk"], "sk": r["sk"]})
+    table().delete_item(Key={"pk": f"INVITE#{meta['inviteCode']}", "sk": "INVITE"})
+
+
 # ---------- operations ----------
 
 
@@ -180,6 +233,7 @@ def create_group(body: dict) -> dict:
     else:
         raise HttpError(500, "Could not create an invite code")
 
+    member_id, secret = _new_member(group_id, display)
     meta = {
         "pk": _pk(group_id),
         "sk": "META",
@@ -187,11 +241,11 @@ def create_group(body: dict) -> dict:
         "mode": mode,
         "inviteCode": code,
         "eventId": event_id,
+        "ownerId": member_id,  # whoever creates the group owns it
         "createdAt": int(time.time() * 1000),
         "expiresAt": EXPIRES_AT,
     }
     table().put_item(Item=meta)
-    member_id, secret = _new_member(group_id, display)
     return {"group": _public_group(meta), "memberId": member_id, "secret": secret}
 
 
@@ -206,8 +260,11 @@ def join_group(body: dict) -> dict:
     meta = next((r for r in rows if r["sk"] == "META"), None)
     if not meta:
         raise HttpError(404, "Group not found")
-    if sum(1 for r in rows if r["sk"].startswith("MEMBER#")) >= MAX_MEMBERS:
+    members = [r for r in rows if r["sk"].startswith("MEMBER#")]
+    if len(members) >= MAX_MEMBERS:
         raise HttpError(409, "This group is full")
+    if display.strip().lower() in {str(r["displayName"]).strip().lower() for r in members}:
+        raise HttpError(409, "Someone in this group already uses that name. Pick another one.")
     member_id, secret = _new_member(group_id, display)
     return {"group": _public_group(meta), "memberId": member_id, "secret": secret}
 
@@ -228,7 +285,13 @@ def get_group(group_id: str, me: str) -> dict:
     ]
     items = [_public_item(r) for r in rows if r["sk"].startswith("ITEM#")]
     # Busy slots are never returned: other members only see the combined free time.
-    return {"group": _public_group(meta), "members": members, "items": items, "me": me}
+    return {
+        "group": _public_group(meta),
+        "members": members,
+        "items": items,
+        "me": me,
+        "ownerId": _owner_id(meta, rows),
+    }
 
 
 def add_item(group_id: str, me: str, body: dict) -> dict:
@@ -267,14 +330,15 @@ def add_item(group_id: str, me: str, body: dict) -> dict:
 
 
 def remove_item(group_id: str, me: str, item_id: str) -> dict:
-    try:
-        table().delete_item(
-            Key={"pk": _pk(group_id), "sk": f"ITEM#{item_id}"},
-            ConditionExpression="createdBy = :me",
-            ExpressionAttributeValues={":me": me},
-        )
-    except table().meta.client.exceptions.ConditionalCheckFailedException:
-        raise HttpError(403, "Only the person who added it can remove it")
+    key = {"pk": _pk(group_id), "sk": f"ITEM#{item_id}"}
+    it = table().get_item(Key=key).get("Item")
+    if not it:
+        return {}  # already gone
+    if it["createdBy"] != me:
+        rows = _query(group_id)
+        if _owner_id(_meta(rows), rows) != me:
+            raise HttpError(403, "Only the person who added it, or the group owner, can remove it")
+    table().delete_item(Key=key)
     return {}
 
 
@@ -361,5 +425,32 @@ def split(group_id: str) -> dict:
 
 
 def leave(group_id: str, me: str) -> dict:
+    rows = _query(group_id)
     table().delete_item(Key={"pk": _pk(group_id), "sk": f"MEMBER#{me}"})
+    if not (_member_ids(rows) - {me}):
+        # Last one out: the group, its calendar and its invite code go too.
+        meta = next((r for r in rows if r["sk"] == "META"), None)
+        if meta:
+            _delete_group(rows, meta)
+    else:
+        _scrub_member(rows, me)
+    return {}
+
+
+def remove_member(group_id: str, me: str, member_id: str) -> dict:
+    """Owner only. For members who are gone for good, like someone who lost their phone."""
+    rows, _ = _require_owner(group_id, me)
+    if member_id == me:
+        raise HttpError(400, "Use Leave group to leave your own group")
+    if member_id not in _member_ids(rows):
+        raise HttpError(404, "That member is not in this group")
+    table().delete_item(Key={"pk": _pk(group_id), "sk": f"MEMBER#{member_id}"})
+    _scrub_member(rows, member_id)
+    return {}
+
+
+def delete_group(group_id: str, me: str) -> dict:
+    """Owner only. Removes the group for everyone."""
+    rows, meta = _require_owner(group_id, me)
+    _delete_group(rows, meta)
     return {}
