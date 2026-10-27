@@ -13,6 +13,8 @@ Hallway is a phone app (iPhone and Android) that plans your re:Invent 2026 week.
 
 That's all for Android: no AWS account, no CDK, no Android Studio, and **no Expo Go or any other app**. You install Hallway itself.
 
+**About the API key.** If you install the Android file, you never see, type or paste the key: the backend address and the key are already inside the app. Only people who **build the app themselves** (the iPhone route below) need to copy two lines into a file. Everyone, on any phone, uses the same shared backend and the same key.
+
 ## Ways to try it
 
 Pick one.
@@ -20,20 +22,42 @@ Pick one.
 | | How |
 |---|---|
 | **Android** | Download `hallway.apk` from the **[latest release](https://github.com/MatiSantoro/reinvent-hallway/releases/latest)**. Open it on the phone and allow "install unknown apps" for your browser when Android asks. |
-| **iPhone** | There is no installable iPhone file: that needs a paid Apple Developer account, which we don't have. If you have a **Mac with Xcode** and an iPhone, you can build it onto your phone with a free Apple ID in a few minutes: follow [Run it on an iPhone](README.md#run-it-on-an-iphone-no-paid-apple-account) in the README (`npx expo run:ios --device`). The app then works for 7 days. |
+| **iPhone** | There is no installable iPhone file: that needs a paid Apple Developer account, which we don't have. If you have a **Mac with Xcode**, follow [iPhone: build it onto your phone](#iphone-build-it-onto-your-phone) below. It takes about 20 minutes the first time and needs only a free Apple ID. |
 | **Watch, no install** | Demo video: **`<VIDEO LINK: add before submitting>`** |
-| **Build it yourself** | Only if you want to. See [Run it yourself](README.md#run-it-yourself) in the README. You will need the shared backend address and app key, listed [just below](#backend-address-and-key-for-building-it-yourself). |
+| **Build it yourself** | Only if you want to change the code. See [Run it yourself](README.md#run-it-yourself) in the README, and use the shared backend address and key from [this section](#backend-address-and-key-for-building-it-yourself). |
+
+## iPhone: build it onto your phone
+
+You need a **Mac with Xcode** (free in the App Store), Node.js 20 or newer, git, an iPhone and its cable, and a free Apple ID. No paid Apple account and no AWS account.
+
+1. Get the code and install it:
+   ```bash
+   git clone https://github.com/MatiSantoro/reinvent-hallway.git
+   cd reinvent-hallway/app
+   npm install
+   ```
+2. Create a file called `app/.env` with the two lines from [the section below](#backend-address-and-key-for-building-it-yourself). **This is the only place the key is used.**
+3. Open `app/app.json` and change `ios.bundleIdentifier` (it says `com.example.hallway`) to something unique to you, such as `com.yourname.hallway`. Apple refuses an id that someone else already used.
+4. On the iPhone, turn on **Developer Mode** (Settings > Privacy & Security > Developer Mode). Plug it in, unlock it, and tap **Trust** if asked.
+5. Build and install:
+   ```bash
+   npx expo run:ios --device --configuration Release
+   ```
+   Pick your iPhone. If Xcode asks for a signing team, choose your **Personal Team** (your Apple ID). The first build takes a few minutes.
+6. On the iPhone: Settings > General > VPN & Device Management > your Apple ID > **Trust**. Then open Hallway.
+
+The Release build carries its own code, so it keeps working without your computer. With a free Apple ID it stops opening after 7 days; run the command again to renew it. No iPhone? `npx expo run:ios` (without `--device`) runs the same app in the iOS Simulator on the Mac. If something fails, [Run it on an iPhone](README.md#run-it-on-an-iphone-no-paid-apple-account) in the README has more detail.
 
 ## Backend address and key (for building it yourself)
 
-Only needed if you build the app yourself. Put these two lines in a file called `app/.env`:
+**Android file users: skip this section.** It is only for people who build the app themselves, such as the iPhone route above. Put these two lines in a file called `app/.env`:
 
 ```
 EXPO_PUBLIC_BACKEND_URL=https://9y85ebqg0m.execute-api.us-east-1.amazonaws.com
 EXPO_PUBLIC_API_KEY=d71d7673db1a1ba4d9aff36f16b9d8ca90fe2cc5a769b90a
 ```
 
-This is the shared backend that every judge uses. The key is not a secret: it ships inside the app and this repository is public, so anyone can read it. It only keeps casual traffic out. What protects the backend is a daily limit on planning calls, shared and per person. [DECISIONS.md](DECISIONS.md) explains why. The backend is switched off after judging, so these values stop working then.
+This is the shared backend that every judge uses, so an iPhone judge who builds the app and an Android judge who installs the file see the same groups. The key is not a secret: it ships inside the app and this repository is public, so anyone can read it. It only keeps casual traffic out. What protects the backend is a daily limit on planning calls, shared and per person. [DECISIONS.md](DECISIONS.md) explains why. The backend is switched off after judging, so these values stop working then.
 
 ## Five-minute tour
 
@@ -48,7 +72,7 @@ This is the shared backend that every judge uses. The key is not a secret: it sh
 
 ## Trying Groups together
 
-You do not need to be in the same room or on the same Wi-Fi. A group lives on the shared backend, not on anyone's phone.
+You do not need to be in the same room or on the same Wi-Fi. A group lives on the shared backend, not on anyone's phone. It makes no difference whether each judge uses an iPhone or an Android phone, or installed the app the Android way or built it themselves: what matters is that everyone's app uses the same backend address and key, and the Android file and the iPhone steps above both do.
 
 1. Judge A opens **Groups**, creates a group (*Squad: go together* or *Team: split and cover more*), and shares the **invite code** (8 characters, unique to that group) or the invite link.
 2. Judge B opens **Groups**, enters the code, and joins. Up to 50 people can join one group.
@@ -71,6 +95,7 @@ Members only share their busy times, never what the busy times are.
 - **Sign-in says "could not reach oauth.awsevents.com" or "Unable to resolve host" (Android).** This is a phone network setting, not a bug in your account. Turn off **battery saver** (or set Hallway to "unrestricted" in the phone's battery settings), then try again. If it persists, switch between Wi-Fi and mobile data, or set **Private DNS** to `dns.google` in Settings > Connections > More connection settings.
 - **Chrome shows "127.0.0.1 refused to connect" after you sign in.** You have an older build. Install the latest `hallway.apk` from the release.
 - **"Not registered for re:Invent 2026".** Your Builder ID is not registered for the event, so the AWS Events API refuses it. Use the demo video instead.
+- **Groups say the backend is not set, or planning says "Agent not connected" (building yourself).** The `app/.env` file is missing or empty. Create it as described above and restart with `npx expo start --dev-client --clear` (or rebuild, if you built a Release version).
 - **"The app key is missing or out of date" (building yourself).** Copy the two lines from [the section above](#backend-address-and-key-for-building-it-yourself) into `app/.env` and restart the dev server with `npx expo start --dev-client --clear`.
 
 ## Privacy and design
