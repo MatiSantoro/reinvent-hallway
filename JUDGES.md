@@ -9,7 +9,7 @@ Hallway is a phone app (iPhone and Android) that plans your re:Invent 2026 week.
 ## What you need
 
 - **An Android phone** (the easy way: you just install a file), **or an iPhone plus a Mac** (see the iPhone row below for why).
-- **An AWS Builder ID that is registered for re:Invent 2026.** The app signs you in and reads your real schedule from the AWS Events API. For an account that isn't registered, that API refuses the request (`403`) and the app stops on the sign-in screen with a "not registered" message. If that's you, use the demo video below.
+- **An AWS Builder ID that is registered for re:Invent 2026.** The app signs you in and reads your real schedule from the AWS Events API. For an account that isn't registered, that API refuses the request (`403`) and the app stops on the sign-in screen with a "not registered" message. If that's you, the app can't show you anything, but you can still read how it works in the [README](README.md#how-it-works) and [DECISIONS.md](DECISIONS.md), and browse the code (see [Where to look in the code](#where-to-look-in-the-code)).
 
 That's all for Android: no AWS account, no CDK, no Android Studio, and **no Expo Go or any other app**. You install Hallway itself.
 
@@ -23,7 +23,6 @@ Pick one.
 |---|---|
 | **Android** | Download `hallway.apk` from the **[latest release](https://github.com/MatiSantoro/reinvent-hallway/releases/latest)**. Open it on the phone and allow "install unknown apps" for your browser when Android asks. |
 | **iPhone** | There is no installable iPhone file: that needs a paid Apple Developer account, which we don't have. If you have a **Mac with Xcode**, follow [iPhone: build it onto your phone](#iphone-build-it-onto-your-phone) below. It takes about 20 minutes the first time and needs only a free Apple ID. |
-| **Watch, no install** | Demo video: **`<VIDEO LINK: add before submitting>`** |
 | **Build it yourself** | Only if you want to change the code. See [Run it yourself](README.md#run-it-yourself) in the README, and use the shared backend address and key from [this section](#backend-address-and-key-for-building-it-yourself). |
 
 ## iPhone: build it onto your phone
@@ -94,7 +93,7 @@ Members only share their busy times, never what the busy times are.
 
 - **Sign-in says "could not reach oauth.awsevents.com" or "Unable to resolve host" (Android).** This is a phone network setting, not a bug in your account. Turn off **battery saver** (or set Hallway to "unrestricted" in the phone's battery settings), then try again. If it persists, switch between Wi-Fi and mobile data, or set **Private DNS** to `dns.google` in Settings > Connections > More connection settings.
 - **Chrome shows "127.0.0.1 refused to connect" after you sign in.** You have an older build. Install the latest `hallway.apk` from the release.
-- **"Not registered for re:Invent 2026".** Your Builder ID is not registered for the event, so the AWS Events API refuses it. Use the demo video instead.
+- **"Not registered for re:Invent 2026".** Your Builder ID is not registered for the event, so the AWS Events API refuses it. The app cannot be used without a registered Builder ID; see [What you need](#what-you-need).
 - **Groups say the backend is not set, or planning says "Agent not connected" (building yourself).** The `app/.env` file is missing or empty. Create it as described above and restart with `npx expo start --dev-client --clear` (or rebuild, if you built a Release version).
 - **"The app key is missing or out of date" (building yourself).** Copy the two lines from [the section above](#backend-address-and-key-for-building-it-yourself) into `app/.env` and restart the dev server with `npx expo start --dev-client --clear`.
 
