@@ -5,7 +5,7 @@ import type { PersonalTime } from '../api/types';
 import { PT_TAG } from '../config';
 import { describePersonalTime, ensurePersonalTime, isOurs, personalInterval, syncTravelBlocks } from '../logic/reconcile';
 import { analyze, sessionSlot, Slot } from '../logic/scheduler';
-import { dayKey, fmtDay, fmtRange, overlaps, sessionInterval, toApiUtc, zonedToUtc } from '../logic/time';
+import { dayKey, fmtDay, fmtRange, overlaps, sessionInterval, toApiTime, zonedToUtc } from '../logic/time';
 import { useApp } from '../state/AppState';
 import { SessionCard } from '../ui/SessionCard';
 import { Banner, Btn, C, Card, Chip, Field, H, P, Row, Title } from '../ui/kit';
@@ -190,8 +190,8 @@ export function WeekScreen() {
                   }
                   const o = await ensurePersonalTime(app.eventId, [
                     {
-                      startDateTime: toApiUtc(start),
-                      endDateTime: toApiUtc(end),
+                      startDateTime: toApiTime(start),
+                      endDateTime: toApiTime(end),
                       title: block.title.trim().slice(0, 128) || 'Busy',
                       description: `${PT_TAG} blocked from Hallway`,
                     },

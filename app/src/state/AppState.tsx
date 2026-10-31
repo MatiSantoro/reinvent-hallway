@@ -4,7 +4,7 @@ import { getEvent, getSchedule, listEvents, NotRegistered } from '../api/events'
 import type { EventInfo, Schedule, Session } from '../api/types';
 import { DEFAULT_EVENT_ID } from '../config';
 import { indexById, loadCatalog } from '../data/catalog';
-import { DEFAULT_TZ } from '../logic/time';
+import { DEFAULT_TZ, setApiTimezone } from '../logic/time';
 
 type Status = 'starting' | 'signedOut' | 'loading' | 'ready' | 'notRegistered' | 'error';
 
@@ -56,6 +56,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const eventId = event?.eventId || DEFAULT_EVENT_ID;
   const tz = event?.timezone || DEFAULT_TZ;
+  // Personal time is read and written on the event's local clock.
+  setApiTimezone(tz);
   const byId = useMemo(() => indexById(sessions), [sessions]);
 
   const boot = useCallback(async (force = false) => {

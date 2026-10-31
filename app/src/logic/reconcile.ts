@@ -15,7 +15,7 @@ import {
 } from '../api/events';
 import type { BulkFailure, PersonalTimeInput, Schedule, Session } from '../api/types';
 import { PT_TAG } from '../config';
-import { dayKey, fmtDay, fmtRange, fromApiUtc, toApiUtc } from './time';
+import { dayKey, fmtDay, fmtRange, fromApiTime, sameApiDate, toApiTime } from './time';
 import type { TravelBlock } from './scheduler';
 
 export interface WriteReport {
@@ -116,8 +116,8 @@ const MIN = 60_000;
 /** Same block? Allows 5 minutes of difference at each end, because a block may have been saved a little shorter. */
 const same = (a: { startDateTime: string; endDateTime: string; title: string }, b: PersonalTimeInput) =>
   a.title === b.title &&
-  Math.abs(fromApiUtc(a.startDateTime) - fromApiUtc(b.startDateTime)) <= 5 * MIN &&
-  Math.abs(fromApiUtc(a.endDateTime) - fromApiUtc(b.endDateTime)) <= 5 * MIN;
+  Math.abs(fromApiTime(a.startDateTime) - fromApiTime(b.startDateTime)) <= 5 * MIN &&
+  Math.abs(fromApiTime(a.endDateTime) - fromApiTime(b.endDateTime)) <= 5 * MIN;
 
 export interface PersonalTimeFailure {
   entry: PersonalTimeInput;
@@ -147,15 +147,15 @@ const minimal = (w: PersonalTimeInput): PersonalTimeInput => ({
  */
 function fallbacks(w: PersonalTimeInput): { entry: PersonalTimeInput; how: string }[] {
   const base = minimal(w);
-  const s = fromApiUtc(w.startDateTime);
-  const e = fromApiUtc(w.endDateTime);
+  const s = fromApiTime(w.startDateTime);
+  const e = fromApiTime(w.endDateTime);
   const out = [{ entry: base, how: 'without the location and details' }];
   if (e - s >= 10 * MIN) {
-    out.push({ entry: { ...base, endDateTime: toApiUtc(e - 5 * MIN) }, how: '5 minutes shorter at the end, without details' });
+    out.push({ entry: { ...base, endDateTime: toApiTime(e - 5 * MIN) }, how: '5 minutes shorter at the end, without details' });
   }
   if (e - s >= 20 * MIN) {
     out.push({
-      entry: { ...base, startDateTime: toApiUtc(s + 5 * MIN), endDateTime: toApiUtc(e - 5 * MIN) },
+      entry: { ...base, startDateTime: toApiTime(s + 5 * MIN), endDateTime: toApiTime(e - 5 * MIN) },
       how: '5 minutes shorter at both ends, without details',
     });
   }
@@ -185,6 +185,10 @@ export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeIn
 
   for (const w of wanted) {
     if (schedule.personalTime.some((p) => same(p, w))) continue;
+    if (!sameApiDate(fromApiTime(w.startDateTime), fromApiTime(w.endDateTime))) {
+      failed.push({ entry: w, status: 400, message: 'A block must start and end on the same day. Split it in two.' });
+      continue;
+    }
     const tries = [{ entry: w, how: '' }, ...fallbacks(w)];
     let lastRefusal: ApiError | null = null;
     let placed = false;
@@ -221,8 +225,8 @@ export function describePersonalTime(
       : `\u2713 ${total} ${plural(total)} on your calendar.`
   );
   for (const f of o.failed) {
-    const start = fromApiUtc(f.entry.startDateTime);
-    const end = fromApiUtc(f.entry.endDateTime);
+    const start = fromApiTime(f.entry.startDateTime);
+    const end = fromApiTime(f.entry.endDateTime);
     lines.push(`\u2717 "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}: ${f.message || `error ${f.status}`}`);
   }
   for (const a of o.adjusted) lines.push(`(\u201C${a.title}\u201D was only accepted ${a.how}.)`);
@@ -237,8 +241,8 @@ const tryCount = (o: PersonalTimeOutcome) => {
 
 export function travelToInput(t: TravelBlock): PersonalTimeInput {
   return {
-    startDateTime: toApiUtc(t.start),
-    endDateTime: toApiUtc(t.end),
+    startDateTime: toApiTime(t.start),
+    endDateTime: toApiTime(t.end),
     title: t.title.slice(0, 128),
     description: `${PT_TAG} travel: ${t.fromVenue} to ${t.toVenue}`.slice(0, 250),
     location: t.toVenue.slice(0, 255),
@@ -263,8 +267,8 @@ export async function syncTravelBlocks(eventId: string, blocks: TravelBlock[]): 
 }
 
 export const personalInterval = (p: { startDateTime: string; endDateTime: string }) => ({
-  start: fromApiUtc(p.startDateTime),
-  end: fromApiUtc(p.endDateTime),
+  start: fromApiTime(p.startDateTime),
+  end: fromApiTime(p.endDateTime),
 });
 
 export const FAILURE_TEXT: Record<string, string> = {

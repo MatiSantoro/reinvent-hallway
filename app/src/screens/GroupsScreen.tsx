@@ -24,7 +24,7 @@ import { APP_SCHEME, PT_TAG } from '../config';
 import { venueLabel } from '../data/venues';
 import { describePersonalTime, ensurePersonalTime, personalInterval, reserveAll } from '../logic/reconcile';
 import { search } from '../logic/filter';
-import { ceil5, clockString, dayKey, floor5, fmtDay, fmtRange, hhmm, parseClock, sessionInterval, toApiUtc, zonedToUtc } from '../logic/time';
+import { ceil5, clockString, dayKey, floor5, fmtDay, fmtRange, hhmm, parseClock, sessionInterval, toApiTime, zonedToUtc } from '../logic/time';
 import { useApp } from '../state/AppState';
 import { describeReport } from '../state/useActions';
 import { GroupCalendar } from '../ui/GroupCalendar';
@@ -248,8 +248,8 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
         // A meetup becomes personal time on your own re:Invent calendar.
         const o = await ensurePersonalTime(app.eventId, [
           {
-            startDateTime: toApiUtc(i.start),
-            endDateTime: toApiUtc(i.end),
+            startDateTime: toApiTime(i.start),
+            endDateTime: toApiTime(i.end),
             title: i.title.slice(0, 128),
             description: `${PT_TAG} ${st.group.name}`.slice(0, 250),
             ...(i.location ? { location: i.location.slice(0, 255) } : {}),

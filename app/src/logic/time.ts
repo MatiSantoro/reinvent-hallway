@@ -1,5 +1,7 @@
 // Time helpers. Session times come as local date + time in the event's timezone.
-// Personal time must be sent as UTC "YYYY-MM-DDTHH:MM:00" with no "Z" and 5-minute lengths.
+// Personal time is sent and returned as the EVENT'S LOCAL wall-clock time, "YYYY-MM-DDTHH:MM:00" with no
+// offset, start and end on the same local date, and 5-minute lengths. (The OpenAPI spec said UTC; the API and the
+// developer guide use the event's local time, so a block sent as UTC landed 8 hours off.)
 import type { Session } from '../api/types';
 
 export const DEFAULT_TZ = 'America/Los_Angeles'; // Las Vegas
@@ -85,16 +87,30 @@ export const overlaps = (a: Interval, b: Interval) => a.start < b.end && b.start
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** epoch ms -> "YYYY-MM-DDTHH:MM:00" in UTC, the only format personal time accepts. */
-export function toApiUtc(ms: number): string {
-  const d = new Date(ms);
+// The event time zone used for personal time. AppState sets it once the event is loaded.
+let apiTz = DEFAULT_TZ;
+export function setApiTimezone(tz: string | undefined) {
+  apiTz = tz || DEFAULT_TZ;
+}
+
+/** epoch ms -> "YYYY-MM-DDTHH:MM:00" on the event's local clock, the format personal time uses. */
+export function toApiTime(ms: number): string {
+  const d = new Date(ms + tzOffsetMinutes(ms, apiTz) * 60000);
   return (
     `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
     `T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00`
   );
 }
 
-export const fromApiUtc = (s: string) => Date.parse(`${s}Z`);
+/** "YYYY-MM-DDTHH:MM:SS" on the event's local clock -> epoch ms. */
+export function fromApiTime(s: string): number {
+  const [date, time = '00:00'] = s.split('T');
+  return zonedToUtc(date, time.slice(0, 5), apiTz);
+}
+
+/** The API refuses a block whose start and end fall on different local dates. */
+export const sameApiDate = (startMs: number, endMs: number) =>
+  toApiTime(startMs).slice(0, 10) === toApiTime(endMs - 60000).slice(0, 10);
 
 const FIVE_MIN = 5 * 60000;
 export const floor5 = (ms: number) => Math.floor(ms / FIVE_MIN) * FIVE_MIN;
