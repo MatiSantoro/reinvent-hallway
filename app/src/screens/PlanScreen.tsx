@@ -276,8 +276,12 @@ export function PlanScreen() {
                 try {
                   const o = await syncTravelBlocks(app.eventId, plan.travel);
                   app.setSchedule(o.schedule);
-                  const d = describePersonalTime(o, plan.travel.length, app.tz);
-                  say(d.text, d.ok ? 'good' : 'info');
+                  if (o.failed.length) {
+                    app.setCalendarBlocked(true);
+                    say("Saving walking time to your AWS calendar isn't available right now. Hallway still checks the walks for you.", 'info');
+                  } else {
+                    say(describePersonalTime(o, plan.travel.length, app.tz).text, 'good');
+                  }
                 } catch (e) {
                   say(e instanceof Error ? e.message : String(e), 'bad');
                 } finally {

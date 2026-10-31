@@ -12,7 +12,8 @@ import { Banner, Btn, C, Card, Chip, Field, H, P, Row, Title } from '../ui/kit';
 
 type Entry =
   | { kind: 'session'; id: string; start: number; reserved: boolean }
-  | { kind: 'personal'; id: string; start: number; p: PersonalTime };
+  | { kind: 'personal'; id: string; start: number; p: PersonalTime }
+  | { kind: 'walk'; id: string; start: number; end: number; title: string };
 
 type Msg = { text: string; kind: 'bad' | 'good' | 'warn' };
 
@@ -63,8 +64,12 @@ export function WeekScreen() {
     schedule.personalTime.forEach((p) =>
       entries.push({ kind: 'personal', id: p.personalTimeId, start: personalInterval(p).start, p })
     );
+    // The API will not take calendar blocks, so walks are shown here instead of on the AWS calendar.
+    if (app.calendarBlocked) {
+      travel.forEach((t) => entries.push({ kind: 'walk', id: `walk-${t.beforeSessionId}`, start: t.start, end: t.end, title: t.title }));
+    }
     return groupByDay(entries);
-  }, [schedule, byId, tz]);
+  }, [schedule, byId, tz, app.calendarBlocked, travel]);
 
   // Favorites = starred sessions you do not hold a seat for.
   const favDays = useMemo(() => {
@@ -144,6 +149,12 @@ export function WeekScreen() {
           <Banner kind="good" text="No clashes, and every walk between venues fits." />
         ) : null}
 
+        {app.calendarBlocked ? (
+          <P dim style={{ fontSize: 13, marginBottom: 8 }}>
+            Walking times are checked and shown here in Hallway. Saving them to your AWS calendar isn't available right now.
+          </P>
+        ) : null}
+        {app.calendarBlocked ? null : (
         <Row style={{ marginBottom: 8 }}>
           <Btn
             small
@@ -154,15 +165,16 @@ export function WeekScreen() {
               guard('walk', async () => {
                 const o = await syncTravelBlocks(app.eventId, travel);
                 app.setSchedule(o.schedule);
-                const d = describePersonalTime(o, travel.length, tz);
-                setMsg({ text: d.text, kind: d.ok ? 'good' : 'warn' });
+                if (o.failed.length) return app.setCalendarBlocked(true);
+                setMsg({ text: describePersonalTime(o, travel.length, tz).text, kind: 'good' });
               })
             }
           />
           <Btn small kind="ghost" label="Block time" onPress={() => setBlockDay(blockDay ? null : eventDays[0] || null)} />
         </Row>
+        )}
 
-        {blockDay ? (
+        {blockDay && !app.calendarBlocked ? (
           <Card>
             <Row style={{ marginBottom: 10 }}>
               {eventDays.map((d) => (
@@ -198,7 +210,8 @@ export function WeekScreen() {
                   ]);
                   app.setSchedule(o.schedule);
                   if (o.failed.length) {
-                    setMsg({ text: describePersonalTime(o, 1, tz, 'block').text, kind: 'warn' });
+                    app.setCalendarBlocked(true);
+                    setBlockDay(null);
                     return;
                   }
                   setBlockDay(null);
@@ -215,6 +228,14 @@ export function WeekScreen() {
               <View key={day}>
                 <H>{fmtDay(day)}</H>
                 {entries.map((e) => {
+                  if (e.kind === 'walk') {
+                    return (
+                      <P key={e.id} dim style={{ fontSize: 13, marginVertical: 2, marginLeft: 6 }}>
+                        {'\u{1F6B6} '}
+                        {e.title} {'\u00B7'} {fmtRange({ start: e.start, end: e.end }, tz)}
+                      </P>
+                    );
+                  }
                   if (e.kind === 'personal') {
                     const iv = personalInterval(e.p);
                     const walk = e.p.description.includes('travel:');

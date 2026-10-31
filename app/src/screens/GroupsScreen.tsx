@@ -256,7 +256,10 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
           },
         ]);
         app.setSchedule(o.schedule);
-        if (o.failed.length) setMsg({ kind: 'info', text: `You are in. ${describePersonalTime(o, 1, tz, 'meetup').text}` });
+        if (o.failed.length) {
+          app.setCalendarBlocked(true);
+          setMsg({ kind: 'info', text: "You're in. Saving it to your AWS calendar isn't available right now." });
+        }
       }
       await load();
     });
