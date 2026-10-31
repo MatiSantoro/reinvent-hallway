@@ -55,7 +55,7 @@ export interface Session {
 
 export interface PersonalTime {
   personalTimeId: string;
-  startDateTime: string; // UTC, YYYY-MM-DDTHH:MM:SS
+  startDateTime: string; // event's local clock, YYYY-MM-DDTHH:MM:SS
   endDateTime: string;
   title: string;
   description: string;

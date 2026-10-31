@@ -123,6 +123,10 @@ export interface PersonalTimeFailure {
   entry: PersonalTimeInput;
   status: number;
   message: string;
+  /** The API's raw reply, in case it says more than `message`. */
+  body: string;
+  /** The version of the block that was tried last, exactly as sent. */
+  lastSent: PersonalTimeInput;
 }
 
 export interface PersonalTimeOutcome {
@@ -186,11 +190,12 @@ export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeIn
   for (const w of wanted) {
     if (schedule.personalTime.some((p) => same(p, w))) continue;
     if (!sameApiDate(fromApiTime(w.startDateTime), fromApiTime(w.endDateTime))) {
-      failed.push({ entry: w, status: 400, message: 'A block must start and end on the same day. Split it in two.' });
+      failed.push({ entry: w, status: 400, message: 'A block must start and end on the same day. Split it in two.', body: '', lastSent: w });
       continue;
     }
     const tries = [{ entry: w, how: '' }, ...fallbacks(w)];
     let lastRefusal: ApiError | null = null;
+    let lastSent = w;
     let placed = false;
     for (const [i, t] of tries.entries()) {
       try {
@@ -201,9 +206,12 @@ export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeIn
       } catch (e) {
         if (!(e instanceof ApiError) || e.status !== 400) throw e;
         lastRefusal = e;
+        lastSent = t.entry;
       }
     }
-    if (!placed && lastRefusal) failed.push({ entry: w, status: lastRefusal.status, message: lastRefusal.message });
+    if (!placed && lastRefusal) {
+      failed.push({ entry: w, status: lastRefusal.status, message: lastRefusal.message, body: lastRefusal.body, lastSent });
+    }
   }
   schedule = await getSchedule(eventId);
   return { schedule, failed, adjusted };
@@ -228,6 +236,7 @@ export function describePersonalTime(
     const start = fromApiTime(f.entry.startDateTime);
     const end = fromApiTime(f.entry.endDateTime);
     lines.push(`\u2717 "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}: ${f.message || `error ${f.status}`}`);
+    lines.push(`   sent ${f.entry.startDateTime} to ${f.entry.endDateTime} (event time); reply ${f.status}: ${f.body || '(empty)'}`);
   }
   for (const a of o.adjusted) lines.push(`(\u201C${a.title}\u201D was only accepted ${a.how}.)`);
   return { ok: o.failed.length === 0, text: lines.join('\n') };

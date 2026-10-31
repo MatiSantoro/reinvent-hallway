@@ -16,7 +16,7 @@ import type {
 } from './types';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public body = '') {
     super(message);
   }
 }
@@ -110,7 +110,7 @@ async function call(path: string, opts: CallOpts = {}): Promise<Response> {
         await sleep(1000 * 2 ** attempt);
         continue;
       default:
-        throw new ApiError(res.status, message || `Request failed (${res.status})`);
+        throw new ApiError(res.status, message || `Request failed (${res.status})`, text);
     }
   }
 }
