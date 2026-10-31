@@ -277,7 +277,7 @@ export function PlanScreen() {
                   const o = await syncTravelBlocks(app.eventId, plan.travel);
                   app.setSchedule(o.schedule);
                   const d = describePersonalTime(o, plan.travel.length, app.tz);
-                  say(d.text, d.ok ? 'good' : 'bad');
+                  say(d.text, d.ok ? 'good' : 'info');
                 } catch (e) {
                   say(e instanceof Error ? e.message : String(e), 'bad');
                 } finally {

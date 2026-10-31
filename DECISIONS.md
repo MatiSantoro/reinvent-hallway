@@ -49,3 +49,7 @@ The backend would receive the token, check it with AWS Events, and either allow 
 ## 5. Builder ID must be registered for re:Invent 2026
 
 The catalog returns `403` for a Builder ID that is not registered for the event, and the app stays on the sign-in screen with a "not registered" message. There is no demo mode.
+
+## 6. Personal time the API refuses is not an app failure
+
+`CreatePersonalTime` is implemented as documented (event-local `YYYY-MM-DDTHH:MM:00`, same date, 5-minute steps), with milder retries if it is refused. In testing the live API answered `400 "The personal time entry could not be applied"` for every block, including one in an empty slot, so the cause is on the API side and not in the request. We chose to show a plain yellow note with the API's reply and carry on: clash and walking-time checks run inside the app, and a group meetup still records "I'm in". We did not hide the refusal or pretend the block was saved.

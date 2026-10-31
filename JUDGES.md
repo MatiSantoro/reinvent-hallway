@@ -87,6 +87,7 @@ Members only share their busy times, never what the busy times are.
 - **Planning is not instant.** The agent call takes roughly 10 to 25 seconds, and the screen says what it is doing.
 - **Shared limits.** To keep the demo cheap, planning is capped at 100 calls a day across all judges, and at 25 a day for each person (a group of judges on the same Wi-Fi share that 25). If you ever see a "planning limit" message, the phone falls back to ranking sessions locally.
 - **The AWS Events API can say no.** It can close an operation (`409`), refuse when you are over a quota (`429`, Hallway waits and retries), or report a session as full. Hallway shows these messages instead of hiding them, and checks `GetSchedule` after every change.
+- **Calendar blocks may be refused by the API.** Walking-time blocks, "Block time" and group meetups are written with `CreatePersonalTime`, using the documented format (event-local time, same day, 5-minute steps). In our testing the live API answered `400 "The personal time entry could not be applied"` even for an empty slot. When that happens Hallway says so in a yellow note and keeps working: walking times are still checked inside the app, and a group "I'm in" still counts. Reserving, favorites and the schedule are not affected.
 - **Walking times and certification mappings are our own estimates.** The API has venue names but no coordinates, and no certification field.
 
 ## If something goes wrong

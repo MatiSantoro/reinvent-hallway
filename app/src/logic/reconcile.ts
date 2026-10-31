@@ -229,14 +229,18 @@ export function describePersonalTime(
   const plural = (n: number) => `${noun}${n === 1 ? '' : 's'}`;
   lines.push(
     o.failed.length
-      ? `${added} of ${total} ${plural(total)} on your calendar. ${o.failed.length} refused by the AWS Events API after trying ${tryCount(o)} versions:`
+      ? `${added} of ${total} ${plural(total)} added to your AWS calendar. The AWS Events API did not accept ${o.failed.length} (it refused all ${tryCount(o)} versions we tried). ${
+          noun === 'walking block'
+            ? 'Walking times are still checked inside Hallway; they are just not saved on your AWS calendar.'
+            : 'It is kept in Hallway only.'
+        }`
       : `\u2713 ${total} ${plural(total)} on your calendar.`
   );
   for (const f of o.failed) {
     const start = fromApiTime(f.entry.startDateTime);
     const end = fromApiTime(f.entry.endDateTime);
-    lines.push(`\u2717 "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}: ${f.message || `error ${f.status}`}`);
-    lines.push(`   sent ${f.entry.startDateTime} to ${f.entry.endDateTime} (event time); reply ${f.status}: ${f.body || '(empty)'}`);
+    lines.push(`\u2022 "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}`);
+    lines.push(`   API reply ${f.status}: ${f.body || f.message || '(empty)'}`);
   }
   for (const a of o.adjusted) lines.push(`(\u201C${a.title}\u201D was only accepted ${a.how}.)`);
   return { ok: o.failed.length === 0, text: lines.join('\n') };

@@ -256,7 +256,7 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
           },
         ]);
         app.setSchedule(o.schedule);
-        if (o.failed.length) throw new Error(describePersonalTime(o, 1, tz, 'block').text);
+        if (o.failed.length) setMsg({ kind: 'info', text: `You are in. ${describePersonalTime(o, 1, tz, 'meetup').text}` });
       }
       await load();
     });

@@ -155,7 +155,7 @@ export function WeekScreen() {
                 const o = await syncTravelBlocks(app.eventId, travel);
                 app.setSchedule(o.schedule);
                 const d = describePersonalTime(o, travel.length, tz);
-                setMsg({ text: d.text, kind: d.ok ? 'good' : 'bad' });
+                setMsg({ text: d.text, kind: d.ok ? 'good' : 'warn' });
               })
             }
           />
@@ -197,7 +197,10 @@ export function WeekScreen() {
                     },
                   ]);
                   app.setSchedule(o.schedule);
-                  if (o.failed.length) throw new Error(describePersonalTime(o, 1, tz, 'block').text);
+                  if (o.failed.length) {
+                    setMsg({ text: describePersonalTime(o, 1, tz, 'block').text, kind: 'warn' });
+                    return;
+                  }
                   setBlockDay(null);
                 })
               }
