@@ -261,6 +261,13 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
           false
         );
         app.setSchedule(o.schedule);
+        // Reports the outcome while we find out whether the API takes meetup blocks.
+        const f = o.failed[0];
+        setMsg(
+          f
+            ? { kind: 'info', text: `You're in. AWS calendar refused it: sent ${f.entry.startDateTime} to ${f.entry.endDateTime}, reply ${f.status}: ${f.body || f.message}` }
+            : { kind: 'good', text: "You're in. Saved on your AWS calendar." }
+        );
       }
       await load();
     });
