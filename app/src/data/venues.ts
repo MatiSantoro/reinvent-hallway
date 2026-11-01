@@ -2,32 +2,35 @@
 // The API gives each session a `venue` name but no coordinates, so this table is ours.
 // These are estimates (walking + shuttle + crowds). Edit them if you know better.
 
-export type VenueKey = 'venetian' | 'wynn' | 'caesars' | 'mgm' | 'mandalay';
+export type VenueKey = 'wynn' | 'encore' | 'venetian' | 'palace' | 'forum' | 'mgm';
 
 const NAMES: Record<VenueKey, string> = {
-  venetian: 'Venetian',
   wynn: 'Wynn',
-  caesars: 'Caesars Forum',
+  encore: 'Encore',
+  venetian: 'Venetian',
+  palace: 'Caesars Palace',
+  forum: 'Caesars Forum',
   mgm: 'MGM Grand',
-  mandalay: 'Mandalay Bay',
 };
 
-// Matched against the lower-cased venue string from the API.
+// Matched against the lower-cased venue string from the API, in this order (forum before the plain "caesars").
 const ALIASES: [RegExp, VenueKey][] = [
+  [/forum/, 'forum'],
+  [/caesars/, 'palace'],
+  [/encore/, 'encore'],
+  [/wynn/, 'wynn'],
   [/venetian|palazzo/, 'venetian'],
-  [/wynn|encore/, 'wynn'],
-  [/caesars|forum/, 'caesars'],
   [/mgm/, 'mgm'],
-  [/mandalay/, 'mandalay'],
 ];
 
-// Symmetric table, north to south on the Strip.
+// Symmetric table, roughly north to south on the Strip. Each pair is listed once.
 const MINUTES: Record<VenueKey, Partial<Record<VenueKey, number>>> = {
-  wynn: { venetian: 15, caesars: 25, mgm: 40, mandalay: 45 },
-  venetian: { caesars: 15, mgm: 35, mandalay: 40 },
-  caesars: { mgm: 30, mandalay: 35 },
-  mgm: { mandalay: 20 },
-  mandalay: {},
+  wynn: { encore: 10, venetian: 15, palace: 25, forum: 30, mgm: 40 },
+  encore: { venetian: 15, palace: 30, forum: 35, mgm: 45 },
+  venetian: { palace: 15, forum: 20, mgm: 35 },
+  palace: { forum: 15, mgm: 30 },
+  forum: { mgm: 30 },
+  mgm: {},
 };
 
 export const SAME_VENUE_MINUTES = 10; // big venues: changing rooms still takes time
