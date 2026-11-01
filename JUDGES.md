@@ -64,7 +64,7 @@ This is the shared backend that every judge uses, so an iPhone judge who builds 
 2. **Plan.** Type something like *"Agents and MCP, Python, nothing before 9am, one fun session outside my job"*, or pick a certification (the chips show current exam versions). Tap **Build my week**. The agent takes roughly 10 to 25 seconds. You get a day-by-day plan with a reason for each pick and walking blocks between venues.
 3. **Reserve.** Use **Reserve** on a single session, or **Reserve all**. A green border and "✓ RESERVED" mean you hold a seat. If a session can't be booked, its card says why (full, clash, and so on).
 4. **Explore.** Search and filter the whole catalog. Everything is filtered on the phone.
-5. **My week.** *Schedule* shows what you hold seats for; *Favorites* shows what you only starred. Between your sessions you also see the walk from one venue to the next, and a green or amber note says whether every walk fits.
+5. **My week.** *Schedule* shows what you hold seats for; *Favorites* shows what you only starred. **Sync walking time** adds walking blocks to your calendar.
 6. **Groups.** See below.
 
 > **Heads up: reservations are real.** Reserve, favorite and walking-time actions change your actual re:Invent schedule. You can undo them from **My week** (Cancel seat, Unfavorite, Remove).
@@ -87,7 +87,6 @@ Members only share their busy times, never what the busy times are.
 - **Planning is not instant.** The agent call takes roughly 10 to 25 seconds, and the screen says what it is doing.
 - **Shared limits.** To keep the demo cheap, planning is capped at 100 calls a day across all judges, and at 25 a day for each person (a group of judges on the same Wi-Fi share that 25). If you ever see a "planning limit" message, the phone falls back to ranking sessions locally.
 - **The AWS Events API can say no.** It can close an operation (`409`), refuse when you are over a quota (`429`, Hallway waits and retries), or report a session as full. Hallway shows these messages instead of hiding them, and checks `GetSchedule` after every change.
-- **Walking times are not saved to your AWS calendar.** We implemented `CreatePersonalTime` with the documented format (event-local time, same day, 5-minute steps), but in our testing the live API answered `400 "The personal time entry could not be applied"` for every block, even in an empty slot. So Hallway does not offer it: walking times are checked and shown inside the app, and a group "I'm in" only reserves your seat. Reserving, favorites and the schedule work normally.
 - **Walking times and certification mappings are our own estimates.** The API has venue names but no coordinates, and no certification field.
 
 ## If something goes wrong

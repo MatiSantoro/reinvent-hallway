@@ -30,4 +30,5 @@ export const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 export const APP_SCHEME = 'hallway';
 
 // Tag we put in personal-time descriptions, so we can recognize blocks we created.
-export const PT_TAG = '[hallway]';
+// Not square brackets: the API refuses [ ] { } | ^ \ ` and emoji in title, description and location.
+export const PT_TAG = '(hallway)';

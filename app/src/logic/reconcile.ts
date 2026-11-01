@@ -111,6 +111,28 @@ export async function reserveAll(eventId: string, sessions: Session[], onProgres
 
 export const isOurs = (description: string) => description.includes(PT_TAG);
 
+/**
+ * Text for a personal-time title, description or location. The API answers 400 "could not be applied" for
+ * [ ] { } | ^ \ ` and for emoji, so those are replaced by spaces (or dropped) before anything is sent.
+ */
+export function apiText(s: string, max: number, fallback = ''): string {
+  const t = s
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, '')
+    .replace(/[[\]{}|^\\`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
+    .trim();
+  return t || fallback;
+}
+
+const clean = (w: PersonalTimeInput): PersonalTimeInput => ({
+  ...w,
+  title: apiText(w.title, 128, 'Busy'),
+  description: apiText(w.description, 250, PT_TAG),
+  ...(w.location ? { location: apiText(w.location, 255) || undefined } : {}),
+});
+
 const MIN = 60_000;
 
 /** Same block? Allows 5 minutes of difference at each end, because a block may have been saved a little shorter. */
@@ -172,12 +194,8 @@ function fallbacks(w: PersonalTimeInput): { entry: PersonalTimeInput; how: strin
  * One refused entry does not stop the others: if the API refuses it as sent we try the milder versions
  * above, and if none works it is reported in `failed` with the API's own message.
  */
-export async function ensurePersonalTime(
-  eventId: string,
-  wanted: PersonalTimeInput[],
-  /** Try the milder versions too if the API refuses the block as sent. */
-  retryMilder = true
-): Promise<PersonalTimeOutcome> {
+export async function ensurePersonalTime(eventId: string, wantedRaw: PersonalTimeInput[]): Promise<PersonalTimeOutcome> {
+  const wanted = wantedRaw.map(clean);
   let schedule = await getSchedule(eventId);
   const failed: PersonalTimeFailure[] = [];
   const adjusted: PersonalTimeOutcome['adjusted'] = [];
@@ -198,7 +216,7 @@ export async function ensurePersonalTime(
       failed.push({ entry: w, status: 400, message: 'A block must start and end on the same day. Split it in two.', body: '', lastSent: w });
       continue;
     }
-    const tries = [{ entry: w, how: '' }, ...(retryMilder ? fallbacks(w) : [])];
+    const tries = [{ entry: w, how: '' }, ...fallbacks(w)];
     let lastRefusal: ApiError | null = null;
     let lastSent = w;
     let placed = false;
@@ -234,18 +252,14 @@ export function describePersonalTime(
   const plural = (n: number) => `${noun}${n === 1 ? '' : 's'}`;
   lines.push(
     o.failed.length
-      ? `${added} of ${total} ${plural(total)} added to your AWS calendar. The AWS Events API did not accept ${o.failed.length} (it refused all ${tryCount(o)} versions we tried). ${
-          noun === 'walking block'
-            ? 'Walking times are still checked inside Hallway; they are just not saved on your AWS calendar.'
-            : 'It is kept in Hallway only.'
-        }`
+      ? `${added} of ${total} ${plural(total)} on your calendar. ${o.failed.length} refused by the AWS Events API after trying ${tryCount(o)} versions:`
       : `\u2713 ${total} ${plural(total)} on your calendar.`
   );
   for (const f of o.failed) {
     const start = fromApiTime(f.entry.startDateTime);
     const end = fromApiTime(f.entry.endDateTime);
-    lines.push(`\u2022 "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}`);
-    lines.push(`   API reply ${f.status}: ${f.body || f.message || '(empty)'}`);
+    lines.push(`\u2717 "${f.entry.title}" ${fmtDay(dayKey(start, tz))} ${fmtRange({ start, end }, tz)}: ${f.message || `error ${f.status}`}`);
+    lines.push(`   sent ${f.entry.startDateTime} to ${f.entry.endDateTime} (event time); reply ${f.status}: ${f.body || '(empty)'}`);
   }
   for (const a of o.adjusted) lines.push(`(\u201C${a.title}\u201D was only accepted ${a.how}.)`);
   return { ok: o.failed.length === 0, text: lines.join('\n') };
@@ -261,9 +275,9 @@ export function travelToInput(t: TravelBlock): PersonalTimeInput {
   return {
     startDateTime: toApiTime(t.start),
     endDateTime: toApiTime(t.end),
-    title: t.title.slice(0, 128),
-    description: `${PT_TAG} travel: ${t.fromVenue} to ${t.toVenue}`.slice(0, 250),
-    location: t.toVenue.slice(0, 255),
+    title: apiText(t.title, 128, 'Walk'),
+    description: apiText(`${PT_TAG} travel: ${t.fromVenue} to ${t.toVenue}`, 250, `${PT_TAG} travel:`),
+    location: apiText(t.toVenue, 255) || undefined,
   };
 }
 

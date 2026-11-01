@@ -50,6 +50,8 @@ The backend would receive the token, check it with AWS Events, and either allow 
 
 The catalog returns `403` for a Builder ID that is not registered for the event, and the app stays on the sign-in screen with a "not registered" message. There is no demo mode.
 
-## 6. We removed the feature the API would not accept
+## 6. The API refuses some characters in personal time, and does not say which
 
-`CreatePersonalTime` is implemented as documented (event-local `YYYY-MM-DDTHH:MM:00`, same date, 5-minute steps). In testing the live API answered `400 "The personal time entry could not be applied"` for every block, including one in an empty slot, so the cause is on the API side and not in the request. We first tried to handle the refusal gracefully (a note, then hiding the buttons), but a button that can only fail is not a feature, so we removed "Sync walking time", "Block time" and the meetup calendar write. Walks are now worked out and shown inside the app, clash checks run there too, and a group meetup only records "I'm in". The client code for `CreatePersonalTime` stays, so it can be switched back on if the API starts accepting blocks. We did not pretend a block was saved.
+For a while every personal-time block we sent came back `400 "The personal time entry could not be applied"`, even in an empty slot, and the message named no field. Sending the developer guide's own example (`Booth duty`, `2026-12-01T19:00:00` to `21:00:00`) worked, and changing one thing at a time showed the cause: the API refuses `[ ] { } | ^ \`, the backtick and emoji in the title, description and location. Our description tag was `[hallway]`, so every block failed.
+
+The tag is now `(hallway)`, and everything typed by a person (a meetup title, a group name, a block title, a rename) goes through one cleaner (`apiText` in `app/src/logic/reconcile.ts`) that replaces or drops those characters before anything is sent. Accents, dashes, curly quotes and `( ) # : < > _ ·` are accepted. If a block is ever refused again, the banner still shows the exact times sent and the API's reply.

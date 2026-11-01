@@ -22,7 +22,7 @@ import {
 } from '../api/backend';
 import { APP_SCHEME, PT_TAG } from '../config';
 import { venueLabel } from '../data/venues';
-import { ensurePersonalTime, personalInterval, reserveAll } from '../logic/reconcile';
+import { describePersonalTime, ensurePersonalTime, personalInterval, reserveAll } from '../logic/reconcile';
 import { search } from '../logic/filter';
 import { ceil5, clockString, dayKey, floor5, fmtDay, fmtRange, hhmm, parseClock, sessionInterval, toApiTime, zonedToUtc } from '../logic/time';
 import { useApp } from '../state/AppState';
@@ -245,29 +245,18 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
           if (!r.done.includes(s.sessionId)) setMsg({ kind: 'info', text: describeReport(r, byId, 'Reserving') });
         }
       } else {
-        // A meetup is also saved as personal time on your own re:Invent calendar. One try; if the API refuses
-        // it you are still in the group's plan, so say nothing.
-        const o = await ensurePersonalTime(
-          app.eventId,
-          [
-            {
-              startDateTime: toApiTime(i.start),
-              endDateTime: toApiTime(i.end),
-              title: i.title.slice(0, 128),
-              description: `${PT_TAG} ${st.group.name}`.slice(0, 250),
-              ...(i.location ? { location: i.location.slice(0, 255) } : {}),
-            },
-          ],
-          false
-        );
+        // A meetup becomes personal time on your own re:Invent calendar.
+        const o = await ensurePersonalTime(app.eventId, [
+          {
+            startDateTime: toApiTime(i.start),
+            endDateTime: toApiTime(i.end),
+            title: i.title.slice(0, 128),
+            description: `${PT_TAG} ${st.group.name}`.slice(0, 250),
+            ...(i.location ? { location: i.location.slice(0, 255) } : {}),
+          },
+        ]);
         app.setSchedule(o.schedule);
-        // Reports the outcome while we find out whether the API takes meetup blocks.
-        const f = o.failed[0];
-        setMsg(
-          f
-            ? { kind: 'info', text: `You're in. AWS calendar refused it: sent ${f.entry.startDateTime} to ${f.entry.endDateTime}, reply ${f.status}: ${f.body || f.message}` }
-            : { kind: 'good', text: "You're in. Saved on your AWS calendar." }
-        );
+        if (o.failed.length) throw new Error(describePersonalTime(o, 1, tz, 'block').text);
       }
       await load();
     });

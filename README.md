@@ -22,14 +22,14 @@ Built for the re:Invent 2026 Event Catalog API Hackathon.
 | Search and filters | Done on the phone, the API has no search |
 | Agent planner | Bedrock ranks a short list against your goals, the phone enforces clashes and walking time |
 | Cert mode | Maps exam domains to `services` / `topics` (our own table) |
-| Walking time | Venue to venue minutes (our own table), checked on the phone and shown between your sessions. Not written to the AWS calendar, see below |
+| Walking time | Venue to venue minutes (our own table), added as `CreatePersonalTime` blocks |
 | Reserve and verify | `GetSession` for the live seat band, `ReserveSessions` scarcest first, per-session results, then `GetSchedule` |
 | Replace full sessions | `sessionFull` failures trigger a re-plan around what you already have |
 | My week | `GetSchedule`, `CancelReservation`, `DisassociateFavorite`, `UpdatePersonalTime`, `DeletePersonalTime` |
 | Groups | Our backend stores the shared calendar. Each member's app talks to the AWS Events API for that member only |
 | Sign out | Revokes the refresh token, optional full Builder ID logout |
 
-The client wraps all 12 operations of the API. The app calls 11 of them: `CreatePersonalTime` is implemented (event-local time, same day, 5-minute steps) but the live API refused every block we sent, even in an empty slot (`400 "The personal time entry could not be applied"`), so the app does not offer it. Existing personal-time entries can still be renamed and removed.
+All 12 operations of the API are used.
 
 ## How it works
 
