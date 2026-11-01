@@ -319,3 +319,64 @@ def test_names_must_be_unique_inside_a_group(api):
     assert s == 200
     api("DELETE", f"/groups/{gid}/members/me", member=_who(b))
     assert _join(api, code, "Ben")[0] == 200  # a name frees up when its member leaves
+
+
+def _group_of_two(api):
+    _, a = api("POST", "/groups", {"name": "Crew", "mode": "squad", "displayName": "Ana", "eventId": "reinvent2026"})
+    _, b = api("POST", "/groups/join", {"inviteCode": a["group"]["inviteCode"], "displayName": "Matias"})
+    return a["group"]["groupId"], a, b
+
+
+def _busy_of(api, gid, viewer, name):
+    _, st = api("GET", f"/groups/{gid}", member=viewer)
+    return next(m for m in st["members"] if m["displayName"] == name)
+
+
+def test_shared_schedule_shows_session_codes_and_plain_busy(api):
+    gid, a, b = _group_of_two(api)
+    slots = [
+        {"start": 0, "end": 60 * M, "code": "COM312-R"},  # a reserved session
+        {"start": 90 * M, "end": 120 * M},  # a personal block: no code, so it is just busy
+    ]
+    s, _ = api("PUT", f"/groups/{gid}/busy", {"slots": slots, "labeled": True}, member=a)
+    assert s == 200
+
+    ana = _busy_of(api, gid, b, "Ana")  # seen by the other member
+    assert ana["busyLabeled"] is True
+    assert ana["busy"] == [{"start": 0, "end": 60 * M, "code": "COM312-R"}, {"start": 90 * M, "end": 120 * M}]
+
+
+def test_times_shared_only_for_free_time_stay_private(api):
+    gid, a, b = _group_of_two(api)
+    api("PUT", f"/groups/{gid}/busy", {"slots": [{"start": 0, "end": 60 * M, "code": "COM312-R"}]}, member=a)  # not labeled
+    ana = _busy_of(api, gid, b, "Ana")
+    assert "busy" not in ana and "busyLabeled" not in ana
+    assert ana["busyUpdatedAt"]
+    # ...but the free-time search still counts those times
+    s, free = api("GET", f"/groups/{gid}/free", member=b, query={"from": "0", "to": str(120 * M), "minMinutes": "30"})
+    assert s == 200 and free["slots"] == [{"start": 60 * M, "end": 120 * M}]
+
+
+def test_unlabeled_refresh_removes_previously_shared_codes(api):
+    gid, a, b = _group_of_two(api)
+    api("PUT", f"/groups/{gid}/busy", {"slots": [{"start": 0, "end": 60 * M, "code": "COM312-R"}], "labeled": True}, member=a)
+    api("PUT", f"/groups/{gid}/busy", {"slots": [{"start": 0, "end": 60 * M, "code": "COM312-R"}]}, member=a)
+    assert "busy" not in _busy_of(api, gid, b, "Ana")
+
+
+def test_a_code_that_is_not_a_session_code_is_shown_as_busy(api):
+    gid, a, b = _group_of_two(api)
+    slots = [
+        {"start": 0, "end": 60 * M, "code": "Doctor <script>alert(1)</script>"},
+        {"start": 60 * M, "end": 120 * M, "code": "x" * 60},
+        {"start": 120 * M, "end": 180 * M, "code": 42},
+    ]
+    api("PUT", f"/groups/{gid}/busy", {"slots": slots, "labeled": True}, member=a)
+    busy = _busy_of(api, gid, b, "Ana")["busy"]
+    assert busy == [{"start": 0, "end": 60 * M}, {"start": 60 * M, "end": 120 * M}, {"start": 120 * M, "end": 180 * M}]
+
+
+def test_a_member_sees_their_own_shared_schedule_too(api):
+    gid, a, b = _group_of_two(api)
+    api("PUT", f"/groups/{gid}/busy", {"slots": [{"start": 0, "end": 60 * M, "code": "NET216-R1"}], "labeled": True}, member=b)
+    assert _busy_of(api, gid, b, "Matias")["busy"][0]["code"] == "NET216-R1"

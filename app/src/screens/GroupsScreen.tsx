@@ -225,14 +225,23 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
       })();
   const calDayShown = calDay || itemsByDay[0]?.[0] || days[0] || null;
 
-  /** Busy = my reserved sessions + my personal time. Only times leave the phone. */
+  /**
+   * Busy = my reserved sessions (with their code, e.g. COM312-R) + my personal time (times only, never the title).
+   * The code leaves the phone only when I tap "Share my schedule".
+   */
   const myBusy = (): Slot[] => [
-    ...schedule.reserved
-      .map((id) => byId.get(id))
-      .map((s) => (s ? sessionInterval(s, tz) : null))
-      .filter((x): x is Slot => !!x),
-    ...schedule.personalTime.map(personalInterval),
+    ...schedule.reserved.flatMap((id) => {
+      const s = byId.get(id);
+      const iv = s && sessionInterval(s, tz);
+      return s && iv ? [{ start: iv.start, end: iv.end, ...(s.abbreviation ? { code: s.abbreviation } : {}) }] : [];
+    }),
+    ...schedule.personalTime.map((p) => {
+      const iv = personalInterval(p);
+      return { start: iv.start, end: iv.end };
+    }),
   ];
+  const timesOnly = (slots: Slot[]): Slot[] => slots.map(({ start, end }) => ({ start, end }));
+  const meMember = st.members.find((m) => m.memberId === st.me);
 
   const joinItem = (i: GroupItem) =>
     guard(i.itemId, async () => {
@@ -282,12 +291,12 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
         <Btn
           small
           kind="ghost"
-          label="Share my busy time"
+          label="Share my schedule"
           busy={busy === 'busy'}
           onPress={() =>
             guard('busy', async () => {
-              await shareBusy(groupId, myBusy());
-              setMsg({ kind: 'good', text: 'Shared your busy times (just times, not what they are).' });
+              await shareBusy(groupId, myBusy(), true);
+              setMsg({ kind: 'good', text: 'Shared: your reserved sessions by code (like COM312-R), and everything else as just "busy".' });
               await load();
             })
           }
@@ -308,7 +317,7 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
                 {m.memberId === st.me ? ' (you)' : ''}
               </Text>
               <Text style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>
-                {[m.memberId === st.ownerId ? 'Owner' : null, m.busyUpdatedAt ? 'shared busy time' : 'no busy time shared']
+                {[m.memberId === st.ownerId ? 'Owner' : null, m.busyLabeled ? 'shared schedule' : m.busyUpdatedAt ? 'shared times only' : 'nothing shared']
                   .filter(Boolean)
                   .join(' · ')}
               </Text>
@@ -460,7 +469,9 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
                 const f = parseClock(freeFrom);
                 const t = parseClock(freeTo);
                 if (f === null || t === null || t <= f) throw new Error('Use times like 08:00 and 22:00, with the end after the start.');
-                await shareBusy(groupId, myBusy()); // keep mine fresh
+                // Keep my times fresh. The session codes go along only if I already chose to share them.
+                const labeled = !!meMember?.busyLabeled;
+                await shareBusy(groupId, labeled ? myBusy() : timesOnly(myBusy()), labeled);
                 setFree(await freeTime(groupId, zonedToUtc(freeDay, clockString(f), tz), zonedToUtc(freeDay, clockString(t), tz), freeMin));
               })
             }
@@ -555,9 +566,16 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
               ))}
             </Row>
           </ScrollView>
-          {calDayShown ? <GroupCalendar day={calDayShown} items={st.items} busy={myBusy()} tz={tz} me={st.me} /> : null}
+          {calDayShown ? <GroupCalendar
+              day={calDayShown}
+              items={st.items}
+              busy={myBusy()}
+              others={st.members.filter((m) => m.memberId !== st.me && m.busyLabeled).map((m) => ({ name: m.displayName, slots: m.busy || [] }))}
+              tz={tz}
+              me={st.me}
+            /> : null}
           <P dim style={{ fontSize: 12, marginTop: 6 }}>
-            Orange: sessions. Blue: meetups. Grey dashed: you are busy (only you can see that).
+            Orange: sessions. Blue: meetups. Grey: who is busy, with the session code if they reserved one (other blocks show only as "busy"). Your own say "You". Tap "Share my schedule" to appear here.
             {!itemsByDay.length ? ' Nothing has been added yet.' : ''}
           </P>
         </View>

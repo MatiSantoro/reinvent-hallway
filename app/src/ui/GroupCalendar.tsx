@@ -15,7 +15,7 @@ export interface Block {
   end: number;
   title: string;
   sub: string;
-  kind: 'session' | 'meetup' | 'busy';
+  kind: 'session' | 'meetup' | 'busy' | 'member';
 }
 export type Placed = Block & { col: number; cols: number };
 
@@ -55,6 +55,7 @@ const STYLE = {
   session: { bg: '#FF9F1C30', edge: C.accent },
   meetup: { bg: '#6CA8FF30', edge: C.blue },
   busy: { bg: '#8B95A51F', edge: C.dim },
+  member: { bg: '#8B95A530', edge: '#B7C0CE' },
 };
 
 /** One day of the group's shared calendar, as an hour-by-hour timeline. */
@@ -62,13 +63,16 @@ export function GroupCalendar({
   day,
   items,
   busy,
+  others,
   tz,
   me,
 }: {
   day: string;
   items: GroupItem[];
-  /** The viewer's own commitments. Only shown to them, never sent to the group. */
+  /** The viewer's own commitments, with the session code where there is one. */
   busy: Slot[];
+  /** What other members chose to share: reserved sessions by code, everything else as plain busy time. */
+  others: { name: string; slots: Slot[] }[];
   tz: string;
   me: string;
 }) {
@@ -84,9 +88,28 @@ export function GroupCalendar({
         sub: `${fmtRange(i, tz)} · ${i.going.length} going${i.going.includes(me) ? ' (you)' : ''}`,
         kind: i.kind,
       }));
-    busy.filter((b) => mine(b.start)).forEach((b, n) => list.push({ id: `busy${n}`, start: b.start, end: b.end, title: 'You are busy', sub: fmtRange(b, tz), kind: 'busy' }));
+    busy
+      .filter((b) => mine(b.start))
+      .forEach((b, n) =>
+        list.push({ id: `busy${n}`, start: b.start, end: b.end, title: b.code ? `You: ${b.code}` : 'You are busy', sub: fmtRange(b, tz), kind: 'busy' })
+      );
+    // Members who share the same session (or are busy at the same time) become one block: "Ana, Matias: COM312-R".
+    const shared = new Map<string, { slot: Slot; names: string[] }>();
+    others.forEach((o) =>
+      o.slots
+        .filter((b) => mine(b.start))
+        .forEach((b) => {
+          const key = `${b.start}|${b.end}|${b.code || ''}`;
+          const hit = shared.get(key);
+          if (hit) hit.names.push(o.name);
+          else shared.set(key, { slot: b, names: [o.name] });
+        })
+    );
+    [...shared.entries()].forEach(([key, { slot, names }]) =>
+      list.push({ id: `m${key}`, start: slot.start, end: slot.end, title: `${names.join(', ')}: ${slot.code || 'busy'}`, sub: fmtRange(slot, tz), kind: 'member' })
+    );
     return place(list);
-  }, [day, items, busy, tz, me]);
+  }, [day, items, busy, others, tz, me]);
 
   const total = (LAST_H - FIRST_H) * HOUR_H;
   const minutesOf = (ms: number, isEnd: boolean) => {
@@ -130,10 +153,10 @@ export function GroupCalendar({
                   paddingHorizontal: 6,
                   paddingVertical: 3,
                   overflow: 'hidden',
-                  opacity: b.kind === 'busy' ? 0.85 : 1,
+                  opacity: b.kind === 'busy' || b.kind === 'member' ? 0.9 : 1,
                 }}
               >
-                <Text style={{ color: b.kind === 'busy' ? C.dim : C.text, fontSize: 11, fontWeight: '700' }} numberOfLines={height > 52 ? 3 : 1}>
+                <Text style={{ color: b.kind === 'busy' || b.kind === 'member' ? C.dim : C.text, fontSize: 11, fontWeight: '700' }} numberOfLines={height > 52 ? 3 : 1}>
                   {b.title}
                 </Text>
                 {height > 40 ? (

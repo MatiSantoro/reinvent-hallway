@@ -4,7 +4,7 @@ Short notes on choices that shaped the app, and what we would change for a publi
 
 ## 1. The backend never sees the Builder ID token
 
-**Decision:** the app signs in with Builder ID and calls the AWS Events API itself. The backend only gets what the user chooses to share: a display name, session ids and times, and busy time ranges (never what they are).
+**Decision:** the app signs in with Builder ID and calls the AWS Events API itself. The backend only gets what the user chooses to share: a display name, session ids and times, and busy time ranges. Session codes (such as COM312-R) are sent only when the user taps Share my schedule; personal blocks are only ever sent as times, never with their title.
 
 **Why:** the Builder ID access token works against the AWS Events API as the attendee. It can read their schedule and change their reservations. If our backend received it, a logging mistake, a compromised Lambda or anyone with access to the AWS account could act as that person. Keeping it on the phone means "your AWS login never leaves the phone" stays true, and people can try the app without trusting whoever runs the backend.
 
@@ -24,7 +24,7 @@ Because of decision 1, the API is protected by limits instead of by identity:
 
 **The app key is public by design.** It ships inside the app, and the app and this repository are public, so anyone can read it. Expo's own docs say nothing embedded in an app can be kept secret. The caps and the budget alert are what actually limit the damage. After judging, turn the backend off (`cdk destroy`, or redeploy with `planDailyLimit=0`).
 
-**Why this is enough for now:** the worst case is a few dollars a day, and nothing here holds a credential or personal data beyond a display name and busy time ranges.
+**Why this is enough for now:** the worst case is a few dollars a day, and nothing here holds a credential or personal data beyond a display name, busy time ranges and, if the user chose to share them, session codes.
 
 ## 3. A group owner without knowing who anyone is
 
@@ -42,7 +42,7 @@ The backend would receive the token, check it with AWS Events, and either allow 
 - The backend would hold a live credential for every user, which undoes decision 1 and the privacy claim in the README.
 - Users would have to trust the operator of the instance.
 - Every protected request would depend on a call to AWS Events. A rate limit or outage there would break the app, and we have not verified that the API allows server-side calls.
-- Groups would be tied to real identities, against the "members only share busy times" design.
+- Groups would be tied to real identities, against the "members only share busy times and session codes" design.
 
 **What it would take, for a public launch:** verify the token once, never store or log it, and return a short-lived signed session. That limits exposure to a single request, but the token still reaches the server, so the privacy line in the README would have to be rewritten.
 
@@ -55,3 +55,9 @@ The catalog returns `403` for a Builder ID that is not registered for the event,
 For a while every personal-time block we sent came back `400 "The personal time entry could not be applied"`, even in an empty slot, and the message named no field. Sending the developer guide's own example (`Booth duty`, `2026-12-01T19:00:00` to `21:00:00`) worked, and changing one thing at a time showed the cause: the API refuses `[ ] { } | ^ \`, the backtick and emoji in the title, description and location. Our description tag was `[hallway]`, so every block failed.
 
 The tag is now `(hallway)`, and everything typed by a person (a meetup title, a group name, a block title, a rename) goes through one cleaner (`apiText` in `app/src/logic/reconcile.ts`) that replaces or drops those characters before anything is sent. Accents, dashes, curly quotes and `( ) # : < > _ ·` are accepted. If a block is ever refused again, the banner still shows the exact times sent and the API's reply.
+
+## 7. What a group sees of your schedule
+
+The shared calendar used to show only when members were busy. It is more useful to see who is in which session, so a member can now choose to share their reserved sessions by code (for example `Ana: COM312-R`). The choice is explicit: nothing is shared until the member taps **Share my schedule**, and the backend returns a member's schedule to the group only if they did. Session codes are public catalog data. Personal blocks (a lunch, a walk, an appointment) are never sent with a title: they travel as a time range and show as "busy". **Find free time** still refreshes only the times, and keeps the codes only for a member who already shared them.
+
+We did not share everything. The backend does not know who anyone is (see section 3), so anyone holding an invite code is a member, and a leaked code would expose every title. Sharing codes of sessions anyone can look up is a risk we accept; sharing private blocks is not.

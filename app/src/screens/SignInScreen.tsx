@@ -7,7 +7,7 @@ import { Banner, Btn, C, P } from '../ui/kit';
 const FEATURES: { icon: IconName; title: string; body: string }[] = [
   { icon: 'plan', title: 'An agent that picks your sessions', body: 'Describe your goals or the certification you are studying. It ranks the whole catalog for you.' },
   { icon: 'week', title: 'A week that actually works', body: 'No clashes, time to walk between venues, and one tap to reserve your seats.' },
-  { icon: 'groups', title: 'Plan with your crew', body: 'Share a calendar and find the time everyone is free. Others see when you are busy, never why.' },
+  { icon: 'groups', title: 'Plan with your crew', body: 'Share a calendar and find the time everyone is free. Others see which sessions you are in if you share them, and only "busy" for anything personal.' },
 ];
 
 /** Soft glow behind the content, so the screen is not a flat dark rectangle. */

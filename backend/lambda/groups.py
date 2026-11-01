@@ -2,7 +2,7 @@
 
 Keys:
   pk=GROUP#<id>  sk=META              name, mode, inviteCode, eventId, ownerId
-  pk=GROUP#<id>  sk=MEMBER#<id>       displayName, secretHash, busy, busyUpdatedAt
+  pk=GROUP#<id>  sk=MEMBER#<id>       displayName, secretHash, busy, busyUpdatedAt, busyLabeled, busySlots
   pk=GROUP#<id>  sk=ITEM#<id>         kind, sessionId, title, start, end, location, createdBy, going, assignee
   pk=INVITE#<code> sk=INVITE          groupId
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import time
 from decimal import Decimal
@@ -30,6 +31,8 @@ EXPIRES_AT = int(os.environ.get("EXPIRES_AT", "1767225600"))  # 2026-01-01 defau
 MAX_MEMBERS = 50
 MAX_ITEMS = 300
 MAX_BUSY = 300
+# A session code such as COM312-R. Anything else is shown to the group as plain "busy".
+_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,23}$")
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I
 
 _table = None
@@ -279,12 +282,25 @@ def get_group(group_id: str, me: str) -> dict:
             "memberId": r["sk"].split("#", 1)[1],
             "displayName": r["displayName"],
             **({"busyUpdatedAt": _num(r["busyUpdatedAt"])} if r.get("busyUpdatedAt") else {}),
+            # Only a member who chose to share their schedule has it listed: reserved sessions by code, every
+            # other block as plain busy time. Times shared only for the free-time search stay private.
+            **(
+                {
+                    "busyLabeled": True,
+                    "busy": [
+                        {"start": _num(a), "end": _num(b), **({"code": c} if c else {})}
+                        for a, b, c in (r.get("busySlots") or [])
+                    ],
+                }
+                if r.get("busyLabeled")
+                else {}
+            ),
         }
         for r in rows
         if r["sk"].startswith("MEMBER#")
     ]
     items = [_public_item(r) for r in rows if r["sk"].startswith("ITEM#")]
-    # Busy slots are never returned: other members only see the combined free time.
+    # Busy slots are returned only for members who shared their schedule (see above).
     return {
         "group": _public_group(meta),
         "members": members,
@@ -363,11 +379,24 @@ def set_busy(group_id: str, me: str, body: dict) -> dict:
     slots = body.get("slots")
     if not isinstance(slots, list) or len(slots) > MAX_BUSY:
         raise HttpError(400, f"slots must be a list of at most {MAX_BUSY}")
-    clean = [list(_interval(s.get("start"), s.get("end"))) for s in slots if isinstance(s, dict)]
+    labeled = body.get("labeled") is True
+    clean, shown = [], []
+    for s in slots:
+        if not isinstance(s, dict):
+            continue
+        start, end = _interval(s.get("start"), s.get("end"))
+        clean.append([start, end])
+        code = s.get("code")
+        shown.append([start, end, code.strip() if isinstance(code, str) and _CODE_RE.match(code.strip()) else ""])
     table().update_item(
         Key={"pk": _pk(group_id), "sk": f"MEMBER#{me}"},
-        UpdateExpression="SET busy = :b, busyUpdatedAt = :t",
-        ExpressionAttributeValues={":b": clean, ":t": int(time.time() * 1000)},
+        UpdateExpression="SET busy = :b, busyUpdatedAt = :t, busyLabeled = :l, busySlots = :s",
+        ExpressionAttributeValues={
+            ":b": clean,
+            ":t": int(time.time() * 1000),
+            ":l": labeled,
+            ":s": shown if labeled else [],
+        },
     )
     return {"count": len(clean)}
 

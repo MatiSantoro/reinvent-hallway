@@ -7,6 +7,7 @@ import { apiText, describePersonalTime, ensurePersonalTime, isOurs, personalInte
 import { analyze, sessionSlot, Slot } from '../logic/scheduler';
 import { dayKey, fmtDay, fmtRange, overlaps, sessionInterval, toApiTime, zonedToUtc } from '../logic/time';
 import { useApp } from '../state/AppState';
+import { Icon } from '../ui/icons';
 import { SessionCard } from '../ui/SessionCard';
 import { Banner, Btn, C, Card, Chip, Field, H, P, Row, Title } from '../ui/kit';
 
@@ -217,10 +218,10 @@ export function WeekScreen() {
                     const walk = e.p.description.includes('travel:');
                     return (
                       <Card key={e.id} style={{ borderStyle: 'dashed' }}>
-                        <Text style={{ color: walk ? C.dim : C.blue, fontWeight: '700' }}>
-                          {walk ? '\u{1F6B6} ' : '\u25FC '}
-                          {e.p.title}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Icon name="week" size={16} color={walk ? C.dim : C.blue} />
+                          <Text style={{ color: walk ? C.dim : C.blue, fontWeight: '700', marginLeft: 8, flexShrink: 1 }}>{e.p.title}</Text>
+                        </View>
                         <P dim style={{ fontSize: 13, marginTop: 4 }}>
                           {fmtRange(iv, tz)}
                           {e.p.location ? ` \u00B7 ${e.p.location}` : ''}

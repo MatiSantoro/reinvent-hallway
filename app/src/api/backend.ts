@@ -1,6 +1,6 @@
 // Client for our own backend (API Gateway + Lambda + DynamoDB + Bedrock).
 // It never sees the AWS Events token. It only gets what the user chooses to share:
-// session ids, times, busy slots and a display name.
+// session ids, times, busy slots (with a session code only when they choose to share it) and a display name.
 import * as SecureStore from 'expo-secure-store';
 import { File, Paths } from 'expo-file-system';
 import { API_KEY, BACKEND_URL } from '../config';
@@ -19,6 +19,10 @@ export interface Member {
   memberId: string;
   displayName: string;
   busyUpdatedAt?: number;
+  /** True when this member shared their schedule with the group (not only times for the free-time search). */
+  busyLabeled?: boolean;
+  /** Their shared schedule: reserved sessions with their code, every other block as plain busy time. */
+  busy?: Slot[];
 }
 
 export interface GroupItem {
@@ -47,6 +51,8 @@ export interface GroupState {
 export interface Slot {
   start: number;
   end: number;
+  /** Session code such as COM312-R. Absent for personal blocks, which are shown as just "busy". */
+  code?: string;
 }
 
 export interface PlanPick {
@@ -229,9 +235,12 @@ export const removeItem = (groupId: string, itemId: string) =>
 export const rsvp = (groupId: string, itemId: string, going: boolean) =>
   req<GroupItem>(`/groups/${groupId}/items/${itemId}/rsvp`, { method: 'PUT', body: { going }, groupId });
 
-/** Shares only busy time ranges, never what the sessions are. */
-export const shareBusy = (groupId: string, slots: Slot[]) =>
-  req(`/groups/${groupId}/busy`, { method: 'PUT', body: { slots }, groupId });
+/**
+ * Shares busy time ranges. With `labeled`, the group also sees who holds which reserved session (by its code);
+ * personal blocks are always just "busy". Without it, only the times are used, for the free-time search.
+ */
+export const shareBusy = (groupId: string, slots: Slot[], labeled = false) =>
+  req(`/groups/${groupId}/busy`, { method: 'PUT', body: { slots, labeled }, groupId });
 
 export const freeTime = (groupId: string, from: number, to: number, minMinutes: number) =>
   req<{ slots: Slot[]; reporting: number; members: number }>(
