@@ -2,13 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { deletePersonalTime, updatePersonalTime } from '../api/events';
 import type { PersonalTime } from '../api/types';
-import { PT_TAG } from '../config';
-import { describePersonalTime, ensurePersonalTime, isOurs, personalInterval, syncTravelBlocks } from '../logic/reconcile';
+import { isOurs, personalInterval } from '../logic/reconcile';
 import { analyze, sessionSlot, Slot } from '../logic/scheduler';
-import { dayKey, fmtDay, fmtRange, overlaps, sessionInterval, toApiTime, zonedToUtc } from '../logic/time';
+import { dayKey, fmtDay, fmtRange, overlaps, sessionInterval } from '../logic/time';
 import { useApp } from '../state/AppState';
 import { SessionCard } from '../ui/SessionCard';
-import { Banner, Btn, C, Card, Chip, Field, H, P, Row, Title } from '../ui/kit';
+import { Banner, Btn, C, Card, Chip, H, P, Row, Title } from '../ui/kit';
 
 type Entry =
   | { kind: 'session'; id: string; start: number; reserved: boolean }
@@ -23,8 +22,6 @@ export function WeekScreen() {
   const [msg, setMsg] = useState<Msg | null>(null);
   // Two lists, never mixed: what you hold seats for, and what you only starred.
   const [view, setView] = useState<'schedule' | 'favorites'>('schedule');
-  const [blockDay, setBlockDay] = useState<string | null>(null);
-  const [block, setBlock] = useState({ title: 'Lunch', from: '12:00', to: '13:00' });
 
   const { schedule, byId, tz } = app;
   const favSet = useMemo(() => new Set(schedule.favorites), [schedule.favorites]);
@@ -64,12 +61,10 @@ export function WeekScreen() {
     schedule.personalTime.forEach((p) =>
       entries.push({ kind: 'personal', id: p.personalTimeId, start: personalInterval(p).start, p })
     );
-    // The API will not take calendar blocks, so walks are shown here instead of on the AWS calendar.
-    if (app.calendarBlocked) {
-      travel.forEach((t) => entries.push({ kind: 'walk', id: `walk-${t.beforeSessionId}`, start: t.start, end: t.end, title: t.title }));
-    }
+    // Walks between venues are worked out by Hallway and shown between your sessions.
+    travel.forEach((t) => entries.push({ kind: 'walk', id: `walk-${t.beforeSessionId}`, start: t.start, end: t.end, title: t.title }));
     return groupByDay(entries);
-  }, [schedule, byId, tz, app.calendarBlocked, travel]);
+  }, [schedule, byId, tz, travel]);
 
   // Favorites = starred sessions you do not hold a seat for.
   const favDays = useMemo(() => {
@@ -86,15 +81,6 @@ export function WeekScreen() {
     return groupByDay(entries);
   }, [schedule, byId, tz, committed]);
   const favCount = useMemo(() => favDays.reduce((n, [, e]) => n + e.length, 0), [favDays]);
-
-  const eventDays = useMemo(() => {
-    const set = new Set<string>();
-    app.sessions.forEach((s) => {
-      const iv = sessionInterval(s, tz);
-      if (iv) set.add(dayKey(iv.start, tz));
-    });
-    return [...set].sort();
-  }, [app.sessions, tz]);
 
   const guard = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -147,78 +133,6 @@ export function WeekScreen() {
           <Banner kind="warn" text={issues.map((i) => `⚠ ${i.message}`).join('\n')} />
         ) : schedule.reserved.length ? (
           <Banner kind="good" text="No clashes, and every walk between venues fits." />
-        ) : null}
-
-        {app.calendarBlocked ? (
-          <P dim style={{ fontSize: 13, marginBottom: 8 }}>
-            Walking times are checked and shown here in Hallway. Saving them to your AWS calendar isn't available right now.
-          </P>
-        ) : null}
-        {app.calendarBlocked ? null : (
-        <Row style={{ marginBottom: 8 }}>
-          <Btn
-            small
-            kind="ghost"
-            label={`Sync walking time (${travel.length})`}
-            busy={busy === 'walk'}
-            onPress={() =>
-              guard('walk', async () => {
-                const o = await syncTravelBlocks(app.eventId, travel);
-                app.setSchedule(o.schedule);
-                if (o.failed.length) return app.setCalendarBlocked(true);
-                setMsg({ text: describePersonalTime(o, travel.length, tz).text, kind: 'good' });
-              })
-            }
-          />
-          <Btn small kind="ghost" label="Block time" onPress={() => setBlockDay(blockDay ? null : eventDays[0] || null)} />
-        </Row>
-        )}
-
-        {blockDay && !app.calendarBlocked ? (
-          <Card>
-            <Row style={{ marginBottom: 10 }}>
-              {eventDays.map((d) => (
-                <Chip key={d} label={fmtDay(d)} on={blockDay === d} onPress={() => setBlockDay(d)} />
-              ))}
-            </Row>
-            <Field label="Title" value={block.title} onChangeText={(title) => setBlock({ ...block, title })} />
-            <Row style={{ flexWrap: 'nowrap' }}>
-              <View style={{ flex: 1 }}>
-                <Field label="From" value={block.from} onChangeText={(from) => setBlock({ ...block, from })} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Field label="To" value={block.to} onChangeText={(to) => setBlock({ ...block, to })} />
-              </View>
-            </Row>
-            <Btn
-              label="Add to my calendar"
-              busy={busy === 'block'}
-              onPress={() =>
-                guard('block', async () => {
-                  const start = zonedToUtc(blockDay, block.from, tz);
-                  const end = zonedToUtc(blockDay, block.to, tz);
-                  if (!(end > start) || (end - start) % 300000 !== 0) {
-                    throw new Error('Use times on 5-minute steps, with the end after the start.');
-                  }
-                  const o = await ensurePersonalTime(app.eventId, [
-                    {
-                      startDateTime: toApiTime(start),
-                      endDateTime: toApiTime(end),
-                      title: block.title.trim().slice(0, 128) || 'Busy',
-                      description: `${PT_TAG} blocked from Hallway`,
-                    },
-                  ]);
-                  app.setSchedule(o.schedule);
-                  if (o.failed.length) {
-                    app.setCalendarBlocked(true);
-                    setBlockDay(null);
-                    return;
-                  }
-                  setBlockDay(null);
-                })
-              }
-            />
-          </Card>
         ) : null}
 
         {view === 'schedule' ? (

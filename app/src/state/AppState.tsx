@@ -20,9 +20,6 @@ interface AppState {
   byId: Map<string, Session>;
   catalogAt: number;
   schedule: Schedule;
-  /** True once the API has refused a personal-time block: stop offering calendar writes this session. */
-  calendarBlocked: boolean;
-  setCalendarBlocked: (v: boolean) => void;
   signIn: () => Promise<void>;
   signOut: (alsoBuilderId: boolean) => Promise<void>;
   refreshSchedule: () => Promise<Schedule>;
@@ -56,7 +53,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [catalogAt, setCatalogAt] = useState(0);
   const [schedule, setSchedule] = useState<Schedule>(EMPTY);
   const [email, setEmail] = useState<string | null>(null);
-  const [calendarBlocked, setCalendarBlocked] = useState(false);
 
   const eventId = event?.eventId || DEFAULT_EVENT_ID;
   const tz = event?.timezone || DEFAULT_TZ;
@@ -112,8 +108,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     byId,
     catalogAt,
     schedule,
-    calendarBlocked,
-    setCalendarBlocked,
     signIn: async () => {
       await auth.signIn();
       await boot();
@@ -122,7 +116,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await auth.signOut();
       if (alsoBuilderId) await auth.signOutOfBuilderId().catch(() => {});
       setSchedule(EMPTY);
-      setCalendarBlocked(false);
       setStatus('signedOut');
     },
     refreshSchedule: async () => {

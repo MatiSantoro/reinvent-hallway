@@ -22,7 +22,7 @@ import {
 } from '../api/backend';
 import { APP_SCHEME, PT_TAG } from '../config';
 import { venueLabel } from '../data/venues';
-import { describePersonalTime, ensurePersonalTime, personalInterval, reserveAll } from '../logic/reconcile';
+import { ensurePersonalTime, personalInterval, reserveAll } from '../logic/reconcile';
 import { search } from '../logic/filter';
 import { ceil5, clockString, dayKey, floor5, fmtDay, fmtRange, hhmm, parseClock, sessionInterval, toApiTime, zonedToUtc } from '../logic/time';
 import { useApp } from '../state/AppState';
@@ -245,21 +245,22 @@ function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () => void 
           if (!r.done.includes(s.sessionId)) setMsg({ kind: 'info', text: describeReport(r, byId, 'Reserving') });
         }
       } else {
-        // A meetup becomes personal time on your own re:Invent calendar.
-        const o = await ensurePersonalTime(app.eventId, [
-          {
-            startDateTime: toApiTime(i.start),
-            endDateTime: toApiTime(i.end),
-            title: i.title.slice(0, 128),
-            description: `${PT_TAG} ${st.group.name}`.slice(0, 250),
-            ...(i.location ? { location: i.location.slice(0, 255) } : {}),
-          },
-        ]);
+        // A meetup is also saved as personal time on your own re:Invent calendar. One try; if the API refuses
+        // it you are still in the group's plan, so say nothing.
+        const o = await ensurePersonalTime(
+          app.eventId,
+          [
+            {
+              startDateTime: toApiTime(i.start),
+              endDateTime: toApiTime(i.end),
+              title: i.title.slice(0, 128),
+              description: `${PT_TAG} ${st.group.name}`.slice(0, 250),
+              ...(i.location ? { location: i.location.slice(0, 255) } : {}),
+            },
+          ],
+          false
+        );
         app.setSchedule(o.schedule);
-        if (o.failed.length) {
-          app.setCalendarBlocked(true);
-          setMsg({ kind: 'info', text: "You're in. Saving it to your AWS calendar isn't available right now." });
-        }
       }
       await load();
     });

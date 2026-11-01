@@ -172,7 +172,12 @@ function fallbacks(w: PersonalTimeInput): { entry: PersonalTimeInput; how: strin
  * One refused entry does not stop the others: if the API refuses it as sent we try the milder versions
  * above, and if none works it is reported in `failed` with the API's own message.
  */
-export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeInput[]): Promise<PersonalTimeOutcome> {
+export async function ensurePersonalTime(
+  eventId: string,
+  wanted: PersonalTimeInput[],
+  /** Try the milder versions too if the API refuses the block as sent. */
+  retryMilder = true
+): Promise<PersonalTimeOutcome> {
   let schedule = await getSchedule(eventId);
   const failed: PersonalTimeFailure[] = [];
   const adjusted: PersonalTimeOutcome['adjusted'] = [];
@@ -193,7 +198,7 @@ export async function ensurePersonalTime(eventId: string, wanted: PersonalTimeIn
       failed.push({ entry: w, status: 400, message: 'A block must start and end on the same day. Split it in two.', body: '', lastSent: w });
       continue;
     }
-    const tries = [{ entry: w, how: '' }, ...fallbacks(w)];
+    const tries = [{ entry: w, how: '' }, ...(retryMilder ? fallbacks(w) : [])];
     let lastRefusal: ApiError | null = null;
     let lastSent = w;
     let placed = false;

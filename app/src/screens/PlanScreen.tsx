@@ -4,7 +4,7 @@ import { BackendNotConfigured } from '../api/backend';
 import { CERTS, certLabel } from '../data/certs';
 import { DEFAULT_GOALS, distinctTypes, Goals } from '../logic/filter';
 import { makePlan, PlanOutput } from '../logic/planner';
-import { describePersonalTime, failureText, favoriteAll, reserveAll, syncTravelBlocks } from '../logic/reconcile';
+import { failureText, favoriteAll, reserveAll } from '../logic/reconcile';
 import { dayKey, fmtDay, fmtRange, sessionInterval } from '../logic/time';
 import { useApp } from '../state/AppState';
 import { describeReport } from '../state/useActions';
@@ -258,30 +258,6 @@ export function PlanScreen() {
                   }
                   for (const sk of r.skipped) next[sk.sessionId] = { text: sk.why, ok: false };
                   setNotes(next);
-                } catch (e) {
-                  say(e instanceof Error ? e.message : String(e), 'bad');
-                } finally {
-                  setBusy(null);
-                }
-              }}
-            />
-            <Btn
-              small
-              kind="ghost"
-              label="+ Walking time"
-              busy={busy === 'walk'}
-              disabled={!plan.travel.length}
-              onPress={async () => {
-                setBusy('walk');
-                try {
-                  const o = await syncTravelBlocks(app.eventId, plan.travel);
-                  app.setSchedule(o.schedule);
-                  if (o.failed.length) {
-                    app.setCalendarBlocked(true);
-                    say("Saving walking time to your AWS calendar isn't available right now. Hallway still checks the walks for you.", 'info');
-                  } else {
-                    say(describePersonalTime(o, plan.travel.length, app.tz).text, 'good');
-                  }
                 } catch (e) {
                   say(e instanceof Error ? e.message : String(e), 'bad');
                 } finally {
